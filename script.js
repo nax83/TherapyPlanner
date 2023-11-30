@@ -3,7 +3,13 @@ class TherapyPlanner {
       this.lefteyeTherapy = [];
       this.righteyeTherapy = [];
       this.currentUnplanned = 1;
-      this.therapyPlan = [];
+      this.therapyPlan = [{
+        "type": "LEFTEYE",
+        "minWeeks": "-",
+        "availableDates": [
+        ],
+        "plannedDate": ""
+      }];
     }
     // Constants for eye types
     static get RIGHTEYE() {
@@ -13,37 +19,11 @@ class TherapyPlanner {
     static get LEFTEYE() {
         return 'LEFTEYE';
     }
+    getPlan() {
+      return this.therapyPlan;
+    }
 
-    mergeTherapies(firstEye = TherapyPlanner.LEFTEYE) {
-        const mergedArray = [];
-        const minLength = Math.min(this.lefteyeTherapy.length, this.righteyeTherapy.length);
-      
-        let currentLeft = firstEye === TherapyPlanner.LEFTEYE;
-        for (let i = 0; i < minLength; i++) {
-          if (currentLeft) {
-            mergedArray.push(this.lefteyeTherapy[i]);
-            mergedArray.push(this.righteyeTherapy[i]);
-          } else {
-            mergedArray.push(this.righteyeTherapy[i]);
-            mergedArray.push(this.lefteyeTherapy[i]);
-          }
-        }
-      
-        //Add remaining elements from the longer array
-        const remainingArray = this.lefteyeTherapy.length > minLength ? this.lefteyeTherapy.slice(minLength) : this.righteyeTherapy .slice(minLength);
-        mergedArray.push(...remainingArray);
-      
-        return mergedArray;
-      }
-  
-    init(lefteyeTherapy, righteyeTherapy, firstEye = LEFTEYE) {
-      this.lefteyeTherapy = lefteyeTherapy;
-      this.righteyeTherapy = righteyeTherapy;
-      this.therapyPlan = this.mergeTherapies(firstEye);
-      console.log(this.therapyPlan);
-    } 
-  
-    next(inputDate, numberOfDates = 3) {
+    next(inputDate) {
 
       const getMinimumInterval = () => {
         
@@ -87,10 +67,9 @@ class TherapyPlanner {
 
       const getNextValidDates = (inputDate, numberOfDates = 3) =>{
         const daysToCheck = [2, 3, 4]; // Tuesday, Wednesday, Thursday represented as 2, 3, 4 (respectively)
-        const addDays = [1, 1, 1]; //Minimum number of days to add for each date
       
-        const getNextValidDate = (startDate, daysToAdd) => {
-          let nextDate = new Date(startDate.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
+        const getNextValidDate = (startDate) => {
+          let nextDate = new Date(startDate.getTime());
           while (!daysToCheck.includes(nextDate.getUTCDay())) {
             nextDate = new Date(nextDate.getTime() + 24 * 60 * 60 * 1000);
           }
@@ -99,13 +78,9 @@ class TherapyPlanner {
       
         const validDates = [];
         let currentDate = inputDate;
+        currentDate = getNextValidDate(currentDate);
       
-        for (let i = 0; i < numberOfDates; i++) {
-          currentDate = getNextValidDate(currentDate, addDays[i]);
-          validDates.push(currentDate);
-        }
-      
-        return validDates;
+        return [currentDate];
       }
 
       if(this.currentUnplanned < this.therapyPlan.length){
@@ -125,27 +100,5 @@ class TherapyPlanner {
     weeksToDays(weeks) {
       return weeks * 7 + 1;
     }
-  }
-  
-  //   const currentDate = new Date();
-  //   // Example usage:
-  //   const leftEye = [
-  //       { type: "LEFTEYE", minWeeks: 6, plannedDate:currentDate, availableDates:[] },
-  //       { type: "LEFTEYE", minWeeks: 4, plannedDate:"", availableDates:[] },
-  //       { type: "LEFTEYE", minWeeks: 3, plannedDate:"", availableDates:[] }
-  //   ];
-
-  //   const rightEye = [
-  //       { type: "RIGHTEYE", minWeeks: 4, plannedDate:"", availableDates:[] },
-  //       { type: "RIGHTEYE", minWeeks: 4, plannedDate:"", availableDates:[] },
-  //       { type: "RIGHTEYE", minWeeks: 3, plannedDate:"", availableDates:[] },
-  //       { type: "RIGHTEYE", minWeeks: 4, plannedDate:"", availableDates:[] }
-  //   ];
-
-  // const planner = new TherapyPlanner();
-  // planner.init(leftEye, rightEye, TherapyPlanner.LEFTEYE);
-
-  // const nextDates = planner.next(currentDate);
-  // console.log(nextDates);
-  
+  } 
   
