@@ -3,12 +3,15 @@ class TherapyPlanner {
       this.lefteyeTherapy = [];
       this.righteyeTherapy = [];
       this.currentUnplanned = 1;
+
+      this.today = new Date("2023-11-04");
+
       this.therapyPlan = [{
         "type": "LEFTEYE",
         "minWeeks": "-",
         "availableDates": [
         ],
-        "plannedDate": ""
+        "plannedDate": "2023-11-04"
       }];
     }
     // Constants for eye types
@@ -19,6 +22,11 @@ class TherapyPlanner {
     static get LEFTEYE() {
         return 'LEFTEYE';
     }
+
+    static get MINWEEKS() {
+        return [4, 6, 8, 12];
+    }
+
     getPlan() {
       return this.therapyPlan;
     }
@@ -89,7 +97,6 @@ class TherapyPlanner {
         let currentDate = inputDate;
   
         currentDate = getMinimumInterval();
-        console.log("asdasdasdasda");
         console.log(currentDate);
         const validDates = getNextValidDates(currentDate);
         this.therapyPlan[target].availableDates = validDates;
@@ -100,5 +107,36 @@ class TherapyPlanner {
     weeksToDays(weeks) {
       return weeks * 7 + 1;
     }
+
+    updateMinWeeksFor(index, minWeeks){
+      if(index >= 0 && index < this.therapyPlan.length){
+        let therapy = this.therapyPlan[index];
+        console.log(TherapyPlanner.MINWEEKS);
+        console.log(minWeeks);
+        if (TherapyPlanner.MINWEEKS.includes(parseInt(minWeeks))){
+          therapy.minWeeks = minWeeks;
+          this.therapyPlan[index]= therapy;
+        }
+      }
+      console.log(this.therapyPlan);
+      return this.therapyPlan;
+    }
+
+    updateTypeFor(index, type){
+      if(index >= 0 && index < this.therapyPlan.length){
+        let therapy = this.therapyPlan[index];
+        if((type === TherapyPlanner.RIGHTEYE || type === TherapyPlanner.LEFTEYE) && therapy.type != type){
+          therapy.type = type;
+          this.therapyPlan[index] = therapy;
+          //TODO:update the schedule before returning the plan
+        }
+      }
+      return this.therapyPlan;
+    }
+
+    updateDateFor(index, date){
+      return this.therapyPlan;
+    }
+
   } 
   
