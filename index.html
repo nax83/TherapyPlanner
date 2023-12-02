@@ -21,77 +21,14 @@
 
   <div id="container" class="container">
 
-
-  <!-- Loop through the array to create rows -->
-  <div class="row" id="gridContainer"></div>
-</div>
+    <!-- Loop through the array to create rows -->
+    <div class="row" id="gridContainer"></div>
+  </div>
 
   <script>
-    
+      
+      const therapyListComponent = createTherapyListComponent('container');
 
-      //const planner = new TherapyPlanner();
-      let firstDateVal = "04/11/2023";
-        const data = [
-        {
-          "type": "LEFTEYE",
-          "minWeeks": "-",
-          "availableDates": [
-          ],
-          "plannedDate": firstDateVal
-        },
-        {
-          "type": "LEFTEYE",
-          "minWeeks": 4,
-          "plannedDate": "",
-          "availableDates": [
-          ]
-        },
-        {
-          "type": "LEFTEYE",
-          "minWeeks": 4,
-          "plannedDate": "",
-          "availableDates": []
-        },
-        {
-          "type": "RIGHTEYE",
-          "minWeeks": 4,
-          "plannedDate": "",
-          "availableDates": []
-        },
-        {
-          "type": "RIGHTEYE",
-          "minWeeks": 3,
-          "plannedDate": "",
-          "availableDates": []
-        },
-        {
-          "type": "RIGHTEYE",
-          "minWeeks": 3,
-          "plannedDate": "",
-          "availableDates": []
-        },
-        {
-          "type": "RIGHTEYE",
-          "minWeeks": 4,
-          "plannedDate": "",
-          "availableDates": []
-        }
-            ];
-        
-        //planner.init(data);
-        //const nextDates = planner.next(new Date(firstDateVal));
-        //drawTherapyList(nextDates);
-        const therapyListComponent = createTherapyListComponent('container');
-
-
-      // Function to handle button click
-      function onChangeHandler(date, id) {
-        console.log("Clicked Date: ");
-        console.log(date, id);
-        // Replace the alert with your desired functionality
-      }
-
-
-      </script>
-    </body>
-    </html>
+    </script>
+  </body>
+</html>
