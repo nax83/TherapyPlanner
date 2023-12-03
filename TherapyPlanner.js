@@ -25,6 +25,34 @@ class TherapyPlanner {
         "availableDates": [
         ],
         "plannedDate": ''
+      },
+      {
+        "type": TherapyPlanner.RIGHTEYE,
+        "minWeeks": 8,
+        "availableDates": [
+        ],
+        "plannedDate": ''
+      },
+      {
+        "type": TherapyPlanner.RIGHTEYE,
+        "minWeeks": 8,
+        "availableDates": [
+        ],
+        "plannedDate": ''
+      },
+      {
+        "type": TherapyPlanner.RIGHTEYE,
+        "minWeeks": 8,
+        "availableDates": [
+        ],
+        "plannedDate": ''
+      },
+      {
+        "type": TherapyPlanner.RIGHTEYE,
+        "minWeeks": 8,
+        "availableDates": [
+        ],
+        "plannedDate": ''
       }];
     }
     // Constants for eye types
