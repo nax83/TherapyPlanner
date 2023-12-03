@@ -1,20 +1,26 @@
-function createTherapyListComponent(rootDiv) {
+function createTherapyListComponent(headerDiv, rootDiv) {
 
     const planner = new TherapyPlanner();
+    planner.addListener(onPlanUpdate);
     const eyes = [{type: TherapyPlanner.LEFTEYE, text: 'Left eye'}, {type: TherapyPlanner.RIGHTEYE, text: 'Right eye'}];
     const TARGETTYPE = 'type';
     const TARGETMINWEEKS = 'minWeeks';
     const TARGETDATE = 'date';
     const container = document.getElementById(rootDiv);
+    const headerContainer = document.getElementById(headerDiv);
     
     buildHeader();
-
     
     const plan = planner.getPlan();
     buildPlan();
 
+    function onPlanUpdate(){
+        planner.getPlan();
+        buildPlan();
+    }
+
     function buildPlan() {
-    
+        cleanupTherapyList();
         plan.forEach((item, index) => {
             const row = document.createElement('div');
             row.classList.add('row', 'align-items-center', 'mt-3');
@@ -35,13 +41,13 @@ function createTherapyListComponent(rootDiv) {
             eyes.forEach((eye, i) => {
                 const radioLabel = document.createElement('label');
                 radioLabel.classList.add('btn', 'btn-secondary');
-                radioLabel.setAttribute('for', `eye-${i}`);
+                radioLabel.setAttribute('for', `eye-${index}-${i}`);
                 const radioInput = document.createElement('input');
                 radioInput.setAttribute('type', 'radio');
-                radioInput.setAttribute('name', 'options');
+                radioInput.setAttribute('name', `options-${index}`);
                 radioInput.setAttribute('autocomplete', 'off');
                 radioInput.setAttribute('class', 'btn-check');
-                radioInput.setAttribute('id',`eye-${i}`);
+                radioInput.setAttribute('id',`eye-${index}-${i}`);
                 radioInput.addEventListener('change', () => {
                     onChangeHandler(TARGETTYPE, index, {type: eye.type});
                 });
@@ -62,10 +68,14 @@ function createTherapyListComponent(rootDiv) {
 
             const selectMinWeeksInput = document.createElement('select');
             selectMinWeeksInput.classList.add('form-select');
-            
+            selectMinWeeksInput.setAttribute('id', `select-${index}`);
             TherapyPlanner.MINWEEKS.forEach((minWeek, i) => {
                 const option = document.createElement('option');
                 option.setAttribute('value', `${minWeek}`);
+                if(item.minWeeks === minWeek){
+                    console.log('selected');
+                    option.setAttribute('selected', 'selected');
+                }
                 const optionText = document.createTextNode(`q-${minWeek}`);
                 option.appendChild(optionText);
                 selectMinWeeksInput.appendChild(option);
@@ -86,9 +96,14 @@ function createTherapyListComponent(rootDiv) {
             datePickerInput.classList.add('form-control');
             datePickerInput.setAttribute('type','date');
             datePickerInput.setAttribute('id',`date-${index}`);
-            if(item.plannedDate && item.plannedDate.length > 0){
-                datePickerInput.setAttribute('value',item.plannedDate);
+            if(item.plannedDate){
+                datePickerInput.setAttribute('value',formatDate(item.plannedDate));
             }
+
+            datePickerInput.addEventListener('change', (event) => {
+                onChangeHandler(TARGETDATE, index, {date: event.target.value});
+            });
+
             availableDatesCol.appendChild(datePickerInput);
             row.appendChild(availableDatesCol);
             
@@ -105,19 +120,25 @@ function createTherapyListComponent(rootDiv) {
         while (container.firstChild) { container.removeChild(container.firstChild); }
     }
 
+    function formatDate(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0'); // Adding 1 because January is 0-indexed
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
     function onChangeHandler(target, index, arg){
+        console.log('index: ' + index + ' target: ' + target);
         switch (target) {
             case TARGETTYPE:
-                console.log(index);
                 console.log(arg.type);
                 planner.updateTypeFor(index, arg.type);
-                console.log(planner.getPlan());
                 break;
             case TARGETDATE:
+                planner.updateDateFor(index, new Date(arg.date));
                 break;
             case TARGETMINWEEKS:
-                planner.updateMinWeeksFor(index, arg.minWeeks);
-                console.log(planner.getPlan());
+                planner.updateMinWeeksFor(index, parseInt(arg.minWeeks));
                 break;
         }
     }
@@ -149,7 +170,7 @@ function createTherapyListComponent(rootDiv) {
         availableDatesCol.classList.add('col-5', 'd-flex', 'justify-content-center');
         availableDatesCol.textContent = 'Date';
         headerRow.appendChild(availableDatesCol);
-        container.appendChild(headerRow);
+        headerContainer.appendChild(headerRow);
     }
     return{
         addRow: addRow
