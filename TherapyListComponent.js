@@ -65,27 +65,30 @@ function createTherapyListComponent(headerDiv, rootDiv) {
             // Min Weeks column
             const minWeeksCol = document.createElement('div');
             minWeeksCol.classList.add('col-1', 'd-flex', 'justify-content-center');
+            if(index === 0){
+                minWeeksCol.textContent = '-';
+            }else{
+                const selectMinWeeksInput = document.createElement('select');
+                selectMinWeeksInput.classList.add('form-select');
+                selectMinWeeksInput.setAttribute('id', `select-${index}`);
+                TherapyPlanner.MINWEEKS.forEach((minWeek, i) => {
+                    const option = document.createElement('option');
+                    option.setAttribute('value', `${minWeek}`);
+                    if(item.minWeeks === minWeek){
+                        console.log('selected');
+                        option.setAttribute('selected', 'selected');
+                    }
+                    const optionText = document.createTextNode(`q-${minWeek}`);
+                    option.appendChild(optionText);
+                    selectMinWeeksInput.appendChild(option);
+                });
 
-            const selectMinWeeksInput = document.createElement('select');
-            selectMinWeeksInput.classList.add('form-select');
-            selectMinWeeksInput.setAttribute('id', `select-${index}`);
-            TherapyPlanner.MINWEEKS.forEach((minWeek, i) => {
-                const option = document.createElement('option');
-                option.setAttribute('value', `${minWeek}`);
-                if(item.minWeeks === minWeek){
-                    console.log('selected');
-                    option.setAttribute('selected', 'selected');
-                }
-                const optionText = document.createTextNode(`q-${minWeek}`);
-                option.appendChild(optionText);
-                selectMinWeeksInput.appendChild(option);
-            });
+                selectMinWeeksInput.addEventListener('change', (event) => {
+                    onChangeHandler(TARGETMINWEEKS, index, {minWeeks: event.target.value});
+                });
 
-            selectMinWeeksInput.addEventListener('change', (event) => {
-                onChangeHandler(TARGETMINWEEKS, index, {minWeeks: event.target.value});
-            });
-
-            minWeeksCol.appendChild(selectMinWeeksInput);
+                minWeeksCol.appendChild(selectMinWeeksInput);
+            }
             row.appendChild(minWeeksCol);
             
             // Available Dates column
