@@ -66,7 +66,7 @@ class TherapyPlanner {
     }
 
     static get MINWEEKS() {
-        return [4, 6, 8, 12];
+        return [4, 6, 8, 10, 12, 14, 16];
     }
 
     addListener(listener) {
