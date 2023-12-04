@@ -6,6 +6,11 @@ function createTherapyListComponent(headerDiv, rootDiv) {
     const TARGETTYPE = 'type';
     const TARGETMINWEEKS = 'minWeeks';
     const TARGETDATE = 'date';
+    const INDEXCOLWIDTH = 'col-1';
+    const TYPECOLWIDTH = 'col-3';
+    const MINWEEKSCOLWIDTH = 'col-2';
+    const MINIMUMDATECOL = 'col-3';
+    const AVAILABLEDATESCOL = 'col-3';
     const container = document.getElementById(rootDiv);
     const headerContainer = document.getElementById(headerDiv);
     
@@ -27,13 +32,13 @@ function createTherapyListComponent(headerDiv, rootDiv) {
         
             // Index column
             const indexCol = document.createElement('div');
-            indexCol.classList.add('col-1', 'd-flex', 'justify-content-center');
+            indexCol.classList.add(INDEXCOLWIDTH, 'd-flex', 'justify-content-center');
             indexCol.textContent = index + 1;
             row.appendChild(indexCol);
         
             // Type column
             const typeCol = document.createElement('div');
-            typeCol.classList.add('col-4', 'd-flex', 'justify-content-center');
+            typeCol.classList.add(TYPECOLWIDTH, 'd-flex', 'justify-content-center');
             const eyesRadioGroup = document.createElement('div');
             eyesRadioGroup.classList.add('btn-group');
             eyesRadioGroup.setAttribute('therapy-id', index);
@@ -64,7 +69,7 @@ function createTherapyListComponent(headerDiv, rootDiv) {
         
             // Min Weeks column
             const minWeeksCol = document.createElement('div');
-            minWeeksCol.classList.add('col-1', 'd-flex', 'justify-content-center');
+            minWeeksCol.classList.add(MINWEEKSCOLWIDTH, 'd-flex', 'justify-content-center');
             if(index === 0){
                 minWeeksCol.textContent = '-';
             }else{
@@ -91,16 +96,24 @@ function createTherapyListComponent(headerDiv, rootDiv) {
             }
             row.appendChild(minWeeksCol);
             
+            // Min Date column
+            const minDateCol = document.createElement('div');
+            minDateCol.classList.add(AVAILABLEDATESCOL,'d-flex', 'justify-content-center');
+            minDateCol.textContent = index === 0 ? '-' : item.minimumDate.toLocaleDateString('it-IT', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+
+
+            row.appendChild(minDateCol);
+
             // Available Dates column
             const availableDatesCol = document.createElement('div');
-            availableDatesCol.classList.add('col-5','d-flex', 'justify-content-center');
+            availableDatesCol.classList.add(AVAILABLEDATESCOL,'d-flex', 'justify-content-center');
         
             const datePickerInput = document.createElement('input');
             datePickerInput.classList.add('form-control');
             datePickerInput.setAttribute('type','date');
             datePickerInput.setAttribute('id',`date-${index}`);
-            if(item.plannedDate){
-                datePickerInput.setAttribute('value',formatDate(item.plannedDate));
+            if(item.minimumDate){
+                datePickerInput.setAttribute('value',formatDate(item.minimumDate));
             }
 
             datePickerInput.addEventListener('change', (event) => {
@@ -152,25 +165,32 @@ function createTherapyListComponent(headerDiv, rootDiv) {
 
         // Index column
         const indexCol = document.createElement('div');
-        indexCol.classList.add('col-1', 'd-flex', 'justify-content-center');
+        indexCol.classList.add(INDEXCOLWIDTH, 'd-flex', 'justify-content-center');
         indexCol.textContent = 'Index';
         headerRow.appendChild(indexCol);
 
         // Type column
         const typeCol = document.createElement('div');
-        typeCol.classList.add('col-4', 'd-flex', 'justify-content-center');
+        typeCol.classList.add(TYPECOLWIDTH, 'd-flex', 'justify-content-center');
         typeCol.textContent = 'Type';
         headerRow.appendChild(typeCol);
 
         // Min Weeks column
         const minWeeksCol = document.createElement('div');
-        minWeeksCol.classList.add('col-1', 'd-flex', 'justify-content-center');
+        minWeeksCol.classList.add(MINWEEKSCOLWIDTH, 'd-flex', 'justify-content-center');
         minWeeksCol.textContent = 'Min Weeks';
         headerRow.appendChild(minWeeksCol);
+
+        // Min Weeks column
+        const midDateCol = document.createElement('div');
+        midDateCol.classList.add(MINIMUMDATECOL, 'd-flex', 'justify-content-center');
+        midDateCol.textContent = 'Min Date';
+        headerRow.appendChild(midDateCol);
+        
       
         // Available Dates column
         const availableDatesCol = document.createElement('div');
-        availableDatesCol.classList.add('col-5', 'd-flex', 'justify-content-center');
+        availableDatesCol.classList.add(AVAILABLEDATESCOL, 'd-flex', 'justify-content-center');
         availableDatesCol.textContent = 'Date';
         headerRow.appendChild(availableDatesCol);
         headerContainer.appendChild(headerRow);
