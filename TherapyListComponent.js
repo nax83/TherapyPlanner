@@ -113,7 +113,11 @@ function createTherapyListComponent(headerDiv, rootDiv) {
             datePickerInput.setAttribute('type','date');
             datePickerInput.setAttribute('id',`date-${index}`);
             if(item.minimumDate){
-                datePickerInput.setAttribute('value',formatDate(item.minimumDate));
+                if(item.plannedDate - item.minimumDate < 0 ){
+                    datePickerInput.setAttribute('value',formatDate(item.minimumDate));
+                }else {
+                    datePickerInput.setAttribute('value',formatDate(item.plannedDate));
+                }
             }
 
             datePickerInput.addEventListener('change', (event) => {
