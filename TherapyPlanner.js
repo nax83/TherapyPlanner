@@ -4,46 +4,47 @@ class TherapyPlanner {
       this.listeners = [];
 
       this.today = new Date();
-
+      this.daysToCheck = [2, 3, 4]; // Tuesday, Wednesday, Thursday represented as 2, 3, 4 (respectively)
+    
       this.therapyPlan = [{
-        "type": TherapyPlanner.LEFTEYE,
+        "type": TherapyPlanner.RIGHTEYE,
         "minWeeks": '-',
         "minimumDate": this.today,
         "plannedDate": this.today
       },
       {
-        "type": TherapyPlanner.LEFTEYE,
+        "type": TherapyPlanner.RIGHTEYE,
         "minWeeks": 4,
         "minimumDate": '',
         "plannedDate": ''
       },
       {
         "type": TherapyPlanner.RIGHTEYE,
-        "minWeeks": 8,
+        "minWeeks": 4,
         "minimumDate": '',
         "plannedDate": ''
       },
       {
         "type": TherapyPlanner.RIGHTEYE,
-        "minWeeks": 8,
+        "minWeeks": 4,
         "minimumDate": '',
         "plannedDate": ''
       },
       {
         "type": TherapyPlanner.RIGHTEYE,
-        "minWeeks": 8,
+        "minWeeks": 4,
         "minimumDate": '',
         "plannedDate": ''
       },
       {
         "type": TherapyPlanner.RIGHTEYE,
-        "minWeeks": 8,
+        "minWeeks": 4,
         "minimumDate": '',
         "plannedDate": ''
       },
       {
         "type": TherapyPlanner.RIGHTEYE,
-        "minWeeks": 8,
+        "minWeeks": 4,
         "minimumDate": '',
         "plannedDate": ''
       }];
@@ -76,10 +77,34 @@ class TherapyPlanner {
       return this.therapyPlan;
     }
 
-    updatePlan() {
+    isValidWorkingDays(date){
+      let nextDate = this.getNextValidDate(date);
+      return nextDate.getTime() === date.getTime();
+    }
+
+    getNextValidDate(startDate) {
+
+      let nextDate = new Date(startDate.getTime());
+      while (!this.daysToCheck.includes(nextDate.getUTCDay())) {
+        nextDate = new Date(nextDate.getTime() + 24 * 60 * 60 * 1000);
+      }
+      return nextDate;
+    }
+
+    getNextValidDates(inputDate, numberOfDates = 3) {
+      
+      const validDates = [];
+      let currentDate = inputDate;
+      currentDate = this.getNextValidDate(currentDate);
+    
+      return [currentDate];
+    }
+
+    updatePlan(root = -1) {
       this.therapyPlan.forEach((therapy, index) => {
-        if(index === 0){
+        if(index === 0 || index < root){
           //doctor freely plan the first therapy
+          console.log("update is not needed");
           return;
         } else{
           const getMinimumInterval = () => {
@@ -87,7 +112,6 @@ class TherapyPlanner {
             let previousSameEye = null;
             let previousOtherEye = null;
             let current = this.therapyPlan[index];
-            console.log(current)
             for (let i = index-1; i >= 0; i--){
                 if(previousSameEye!==null && previousOtherEye!==null){
                     break;
@@ -104,47 +128,27 @@ class TherapyPlanner {
             let minOtherEyeDate = 0;
     
             if(previousSameEye){
-              const previousSameEyeDate = new Date(previousSameEye.minimumDate);
+              const previousSameEyeDate = Math.max(previousSameEye.minimumDate, previousSameEye.plannedDate);
+              console.log("########");
+              console.log(previousSameEyeDate);
               minDays = this.weeksToDays(current.minWeeks);
-              minSameEyeDate = previousSameEyeDate.getTime()+minDays * 24 * 60 * 60 * 1000;
-              console.log("previousSameEyeDate");
-              console.log(new Date(minSameEyeDate));
+              minSameEyeDate = (new Date (previousSameEyeDate)).getTime()+minDays * 24 * 60 * 60 * 1000;
             }
             if(previousOtherEye){
-              const previousOtherEyeDate = new Date(previousOtherEye.minimumDate);
+              const previousOtherEyeDate = Math.max(previousOtherEye.minimumDate, previousOtherEye.plannedDate);
               minDays = this.weeksToDays(2);
-              minOtherEyeDate = previousOtherEyeDate.getTime()+minDays * 24 * 60 * 60 * 1000;
-              console.log("previousOtherEyeDate");
-              console.log(new Date(minOtherEyeDate));
+              minOtherEyeDate = (new Date (previousOtherEyeDate)).getTime()+minDays * 24 * 60 * 60 * 1000;
             }
             let currentDate = Math.max(minSameEyeDate, minOtherEyeDate);
-            console.log("#######");
-            console.log(new Date(currentDate));
             return new Date(currentDate);
           }
+          
 
-          const getNextValidDates = (inputDate, numberOfDates = 3) =>{
-            const daysToCheck = [2, 3, 4]; // Tuesday, Wednesday, Thursday represented as 2, 3, 4 (respectively)
-          
-            const getNextValidDate = (startDate) => {
-              let nextDate = new Date(startDate.getTime());
-              while (!daysToCheck.includes(nextDate.getUTCDay())) {
-                nextDate = new Date(nextDate.getTime() + 24 * 60 * 60 * 1000);
-              }
-              return nextDate;
-            };
-          
-            const validDates = [];
-            let currentDate = inputDate;
-            currentDate = getNextValidDate(currentDate);
-          
-            return [currentDate];
-          }
           let currentDate;
     
           currentDate = getMinimumInterval();
           console.log(currentDate);
-          const validDates = getNextValidDates(currentDate);
+          const validDates = this.getNextValidDates(currentDate);
           this.therapyPlan[index].minimumDate = validDates[0];
           }
       });
@@ -189,12 +193,12 @@ class TherapyPlanner {
       if(index > 0 && index < this.therapyPlan.length){
         if(date instanceof Date){
           let therapy = this.therapyPlan[index];
-          if(date - therapy.minimumDate > 0 ){
+          if(date - therapy.minimumDate > 0 && this.isValidWorkingDays(date)){
             therapy.plannedDate = date;
             this.therapyPlan[index] = therapy;
-            this.updatePlan();
-            this.notifyListeners();
+            this.updatePlan(index);
           }
+          this.notifyListeners();
         }
       }
       if(index === 0 ){
