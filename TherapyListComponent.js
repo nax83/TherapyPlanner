@@ -28,7 +28,7 @@ function createTherapyListComponent(headerDiv, rootDiv) {
         cleanupTherapyList();
         plan.forEach((item, index) => {
             const row = document.createElement('div');
-            row.classList.add('row', 'align-items-center', 'mt-3');
+            row.classList.add('row', 'align-items-center', 'g-2');
         
             // Index column
             const indexCol = document.createElement('div');
@@ -165,7 +165,7 @@ function createTherapyListComponent(headerDiv, rootDiv) {
 
     function buildHeader(){
         const headerRow = document.createElement('div');
-        headerRow.classList.add('row', 'align-items-center', 'mt-3');
+        headerRow.classList.add('row', 'align-items-center', 'g-2');
 
         // Index column
         const indexCol = document.createElement('div');
