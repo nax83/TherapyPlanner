@@ -7,10 +7,9 @@ function createTherapyListComponent(headerDiv, rootDiv) {
     const TARGETMINWEEKS = 'minWeeks';
     const TARGETDATE = 'date';
     const INDEXCOLWIDTH = 'col-1';
-    const TYPECOLWIDTH = 'col-3';
-    const MINWEEKSCOLWIDTH = 'col-2';
-    const MINIMUMDATECOL = 'col-3';
-    const AVAILABLEDATESCOL = 'col-3';
+    const MINWEEKSCOLWIDTH = 'col-3';
+    const MINIMUMDATECOL = 'col-4';
+    const AVAILABLEDATESCOL = 'col-4';
     const container = document.getElementById(rootDiv);
     const headerContainer = document.getElementById(headerDiv);
     
@@ -35,37 +34,6 @@ function createTherapyListComponent(headerDiv, rootDiv) {
             indexCol.classList.add(INDEXCOLWIDTH, 'd-flex', 'justify-content-center');
             indexCol.textContent = index + 1;
             row.appendChild(indexCol);
-        
-            // Type column
-            const typeCol = document.createElement('div');
-            typeCol.classList.add(TYPECOLWIDTH, 'd-flex', 'justify-content-center');
-            const eyesRadioGroup = document.createElement('div');
-            eyesRadioGroup.classList.add('btn-group');
-            eyesRadioGroup.setAttribute('therapy-id', index);
-            
-            eyes.forEach((eye, i) => {
-                const radioLabel = document.createElement('label');
-                radioLabel.classList.add('btn', 'btn-secondary');
-                radioLabel.setAttribute('for', `eye-${index}-${i}`);
-                const radioInput = document.createElement('input');
-                radioInput.setAttribute('type', 'radio');
-                radioInput.setAttribute('name', `options-${index}`);
-                radioInput.setAttribute('autocomplete', 'off');
-                radioInput.setAttribute('class', 'btn-check');
-                radioInput.setAttribute('id',`eye-${index}-${i}`);
-                radioInput.addEventListener('change', () => {
-                    onChangeHandler(TARGETTYPE, index, {type: eye.type});
-                });
-                if (item.type === eye.type) {
-                    radioInput.setAttribute('checked', true);
-                }
-                const radioText = document.createTextNode(eye.text);
-                eyesRadioGroup.appendChild(radioInput);
-                radioLabel.appendChild(radioText);
-                eyesRadioGroup.appendChild(radioLabel);
-                typeCol.appendChild(eyesRadioGroup);
-            });
-            row.appendChild(typeCol);
         
             // Min Weeks column
             const minWeeksCol = document.createElement('div');
@@ -172,12 +140,6 @@ function createTherapyListComponent(headerDiv, rootDiv) {
         indexCol.classList.add(INDEXCOLWIDTH, 'd-flex', 'justify-content-center');
         indexCol.textContent = 'Index';
         headerRow.appendChild(indexCol);
-
-        // Type column
-        const typeCol = document.createElement('div');
-        typeCol.classList.add(TYPECOLWIDTH, 'd-flex', 'justify-content-center');
-        typeCol.textContent = 'Type';
-        headerRow.appendChild(typeCol);
 
         // Min Weeks column
         const minWeeksCol = document.createElement('div');
