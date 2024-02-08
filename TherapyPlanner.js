@@ -37,13 +37,25 @@ class TherapyPlanner {
         "plannedDate": ''
       },
       {
-        "type": TherapyPlanner.RIGHTEYE,
+        "type": TherapyPlanner.LEFTEYE,
         "minWeeks": 4,
         "minimumDate": '',
         "plannedDate": ''
       },
       {
-        "type": TherapyPlanner.RIGHTEYE,
+        "type": TherapyPlanner.LEFTEYE,
+        "minWeeks": 4,
+        "minimumDate": '',
+        "plannedDate": ''
+      },
+      {
+        "type": TherapyPlanner.LEFTEYE,
+        "minWeeks": 4,
+        "minimumDate": '',
+        "plannedDate": ''
+      },
+      {
+        "type": TherapyPlanner.LEFTEYE,
         "minWeeks": 4,
         "minimumDate": '',
         "plannedDate": ''
@@ -75,6 +87,10 @@ class TherapyPlanner {
 
     getPlan() {
       return this.therapyPlan;
+    }
+
+    getPlanByEye(eye=TherapyPlanner.RIGHTEYE) {
+      return this.therapyPlan.filter(item => item.type === eye);
     }
 
     isValidWorkingDays(date){

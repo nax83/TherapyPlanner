@@ -1,7 +1,5 @@
-function createTherapyListComponent(headerDiv, rootDiv) {
+function createTherapyListComponent(rootDiv, type, planner) {
 
-    const planner = new TherapyPlanner();
-    planner.addListener(onPlanUpdate);
     const eyes = [{type: TherapyPlanner.LEFTEYE, text: 'Left eye'}, {type: TherapyPlanner.RIGHTEYE, text: 'Right eye'}];
     const TARGETTYPE = 'type';
     const TARGETMINWEEKS = 'minWeeks';
@@ -10,12 +8,24 @@ function createTherapyListComponent(headerDiv, rootDiv) {
     const MINWEEKSCOLWIDTH = 'col-3';
     const MINIMUMDATECOL = 'col-4';
     const AVAILABLEDATESCOL = 'col-4';
-    const container = document.getElementById(rootDiv);
-    const headerContainer = document.getElementById(headerDiv);
+
+    planner.addListener(onPlanUpdate);
+
+    const container = document.createElement('div');
+    container.classList.add('container');
+    container.setAttribute('id', `container-${type}`);
+
+    const headerContainer = document.createElement('div');
+    headerContainer.classList.add('container');
+    headerContainer.setAttribute('id', `header-container-${type}`);
     
+    const root = document.getElementById(rootDiv);
+    root.appendChild(headerContainer);
+    root.appendChild(container);
+
     buildHeader();
     
-    const plan = planner.getPlan();
+    const plan = planner.getPlanByEye(type);
     buildPlan();
 
     function onPlanUpdate(){

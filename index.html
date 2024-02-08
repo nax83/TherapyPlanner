@@ -22,26 +22,24 @@
     <div class="col-sm-6">
       <div class="card">
         <div class="card-header">Right Eye</div>
-        <div class="card-body">
-          <div id="header-container-rightEye" class="container"></div>
-          <div id="container-rightEye" class="container"></div>
+        <div class="card-body" id="cardRightEye">
+          
         </div>
       </div>
     </div>
     <div class="col-sm-6">
       <div class="card">
         <div class="card-header">Left Eye</div>
-        <div class="card-body">
-          <div id="header-container-leftEye" class="container"></div>
-          <div id="container-leftEye" class="container"></div>
+        <div id="cardLeftEye" class="card-body">
+         
         </div>
       </div>
     </div>
   </div>
   <script>
-      
-      createTherapyListComponent('header-container-rightEye','container-rightEye');
-      createTherapyListComponent('header-container-leftEye','container-leftEye');
+      const planner = new TherapyPlanner();
+      createTherapyListComponent('cardRightEye', TherapyPlanner.RIGHTEYE, planner);
+      createTherapyListComponent('cardLeftEye', TherapyPlanner.LEFTEYE, planner);
     </script>
   </body>
 </html>
