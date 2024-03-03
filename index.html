@@ -6,6 +6,7 @@
   <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css">
   <!-- Bootstrap CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.5.0/font/bootstrap-icons.css" rel="stylesheet">
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="TherapyPlanner.js"></script>
@@ -18,28 +19,21 @@
   </style>
 </head>
 <body>
+
   <div class="row">
-    <div class="col-sm-6">
-      <div class="card">
-        <div class="card-header">Right Eye</div>
-        <div class="card-body" id="cardRightEye">
-          
-        </div>
-      </div>
+    <div id="first" class="col-sm-6">
+
     </div>
-    <div class="col-sm-6">
-      <div class="card">
-        <div class="card-header">Left Eye</div>
-        <div id="cardLeftEye" class="card-body">
-         
-        </div>
-      </div>
+    <div id="second" class="col-sm-6">
+
     </div>
   </div>
   <script>
       const planner = new TherapyPlanner();
-      createTherapyListComponent('cardRightEye', TherapyPlanner.RIGHTEYE, planner);
-      createTherapyListComponent('cardLeftEye', TherapyPlanner.LEFTEYE, planner);
+      const rightCard = createTherapyListComponent('cardRightEye', TherapyPlanner.RIGHTEYE, planner);
+      const leftCard = createTherapyListComponent('cardLeftEye', TherapyPlanner.LEFTEYE, planner);
+      document.getElementById('first').appendChild(rightCard);
+      document.getElementById('second').appendChild(leftCard);
     </script>
   </body>
 </html>

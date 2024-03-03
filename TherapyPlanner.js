@@ -230,6 +230,27 @@ class TherapyPlanner {
       console.log(this.therapyPlan);
       return;
     }
+    addTherapy(type){
+      let therapy = {
+        "type": type,
+        "minWeeks": 4,
+        "minimumDate": '',
+        "plannedDate": ''
+      };
+      this.therapyPlan.push(therapy);
+      this.updatePlan();
+      this.notifyListeners();
+    }
+    removeTherapy(type){
+      const lastIndex = this.therapyPlan.slice().reverse().findIndex(entry => entry.type === type);
 
+      // If the type is found, remove the entry
+      if (lastIndex !== -1) {
+        const indexToRemove = this.therapyPlan.length - 1 - lastIndex;
+        this.therapyPlan.splice(indexToRemove, 1);
+        this.updatePlan();
+        this.notifyListeners();
+      }
+    }
   } 
   

@@ -1,6 +1,6 @@
-function createTherapyListComponent(rootDiv, type, planner) {
+function createTherapyListComponent(componentId, type, planner) {
 
-    const eyes = [{type: TherapyPlanner.LEFTEYE, text: 'Left eye'}, {type: TherapyPlanner.RIGHTEYE, text: 'Right eye'}];
+    const eyes = {[TherapyPlanner.LEFTEYE]: 'Left eye', [TherapyPlanner.RIGHTEYE]: 'Right eye'};
     const TARGETTYPE = 'type';
     const TARGETMINWEEKS = 'minWeeks';
     const TARGETDATE = 'date';
@@ -15,29 +15,63 @@ function createTherapyListComponent(rootDiv, type, planner) {
     container.classList.add('container');
     container.setAttribute('id', `container-${type}`);
 
+    const card = document.createElement('div');
+    card.classList.add('card');
+    card.setAttribute('id', componentId); 
+    
+    const cardHeader = document.createElement('div');
+    cardHeader.classList.add('card-header', 'd-flex');
+    
+    const cardHeaderLabel = document.createElement('span')
+    cardHeaderLabel.classList.add('mr-auto', 'p-2');
+    cardHeaderLabel.textContent = eyes[type];
+
+    const addButton = document.createElement('button');
+    addButton.classList.add('btn', 'btn-light', 'p-2');
+
+    const plusIcon = document.createElement('span');
+    plusIcon.classList.add('bi', 'bi-plus-circle', 'p-2');
+    
+    const removeButton = document.createElement('button');
+    removeButton.classList.add('btn', 'btn-light');
+
+    const minusIcon = document.createElement('span');
+    minusIcon.classList.add('bi', 'bi-dash-circle');
+
+    addButton.appendChild(plusIcon);
+    addButton.addEventListener('click', (event) => {planner.addTherapy(type)});
+    removeButton.appendChild(minusIcon);
+    removeButton.addEventListener('click', (event) => {planner.removeTherapy(type)});
+
+    cardHeader.appendChild(cardHeaderLabel);
+    cardHeader.appendChild(addButton);
+    cardHeader.appendChild(removeButton);
+
+    const cardBody = document.createElement('div');
+    cardBody.classList.add('card-body');
+
+    card.appendChild(cardHeader);
+    card.appendChild(cardBody);
+
     const headerContainer = document.createElement('div');
     headerContainer.classList.add('container');
     headerContainer.setAttribute('id', `header-container-${type}`);
-    
-    const root = document.getElementById(rootDiv);
-    root.appendChild(headerContainer);
-    root.appendChild(container);
+
+    cardBody.appendChild(headerContainer);
+    cardBody.appendChild(container);
 
     buildHeader();
-    
-    const plan = planner.getPlanByEye(type);
     buildPlan();
 
     function onPlanUpdate(){
-        planner.getPlan();
         buildPlan();
     }
 
     function buildPlan() {
         cleanupTherapyList();
-        plan.forEach((item, index) => {
+        planner.getPlanByEye(type).forEach((item, index) => {
             const row = document.createElement('div');
-            row.classList.add('row', 'align-items-center', 'g-2');
+            row.classList.add('row', 'align-items-center', 'mt-2');
         
             // Index column
             const indexCol = document.createElement('div');
@@ -171,7 +205,5 @@ function createTherapyListComponent(rootDiv, type, planner) {
         headerRow.appendChild(availableDatesCol);
         headerContainer.appendChild(headerRow);
     }
-    return{
-        addRow: addRow
-    }
+    return card;
 }
