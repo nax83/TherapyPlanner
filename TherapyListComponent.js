@@ -87,7 +87,7 @@ function createTherapyListComponent(componentId, type, planner) {
             }else{
                 const selectMinWeeksInput = document.createElement('select');
                 selectMinWeeksInput.classList.add('form-select');
-                selectMinWeeksInput.setAttribute('id', `select-${index}`);
+                selectMinWeeksInput.setAttribute('id', `${type}-select-${index}`);
                 TherapyPlanner.MINWEEKS.forEach((minWeek, i) => {
                     const option = document.createElement('option');
                     option.setAttribute('value', `${minWeek}`);
@@ -123,7 +123,7 @@ function createTherapyListComponent(componentId, type, planner) {
             const datePickerInput = document.createElement('input');
             datePickerInput.classList.add('form-control');
             datePickerInput.setAttribute('type','date');
-            datePickerInput.setAttribute('id',`date-${index}`);
+            datePickerInput.setAttribute('id',`${type}-date-${index}`);
             if(item.minimumDate){
                 if(item.plannedDate - item.minimumDate < 0 ){
                     datePickerInput.setAttribute('value',formatDate(item.minimumDate));
