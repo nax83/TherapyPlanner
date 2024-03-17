@@ -68,6 +68,7 @@ function createTherapyListComponent(componentId, type, planner) {
     }
 
     function buildPlan() {
+        console.log("draw again")
         cleanupTherapyList();
         planner.getPlanByEye(type).forEach((item, index) => {
             const row = document.createElement('div');
@@ -92,7 +93,6 @@ function createTherapyListComponent(componentId, type, planner) {
                     const option = document.createElement('option');
                     option.setAttribute('value', `${minWeek}`);
                     if(item.minWeeks === minWeek){
-                        console.log('selected');
                         option.setAttribute('selected', 'selected');
                     }
                     const optionText = document.createTextNode(`q-${minWeek}`);
@@ -101,7 +101,7 @@ function createTherapyListComponent(componentId, type, planner) {
                 });
 
                 selectMinWeeksInput.addEventListener('change', (event) => {
-                    onChangeHandler(TARGETMINWEEKS, index, {minWeeks: event.target.value});
+                    onChangeHandler(TARGETMINWEEKS, type, index, {minWeeks: event.target.value});
                 });
 
                 minWeeksCol.appendChild(selectMinWeeksInput);
@@ -111,9 +111,9 @@ function createTherapyListComponent(componentId, type, planner) {
             // Min Date column
             const minDateCol = document.createElement('div');
             minDateCol.classList.add(AVAILABLEDATESCOL,'d-flex', 'justify-content-center');
+            console.log(index);
+            console.log(item.minimumDate);
             minDateCol.textContent = index === 0 ? '-' : item.minimumDate.toLocaleDateString('it-IT', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
-
-
             row.appendChild(minDateCol);
 
             // Available Dates column
@@ -133,19 +133,14 @@ function createTherapyListComponent(componentId, type, planner) {
             }
 
             datePickerInput.addEventListener('change', (event) => {
-                onChangeHandler(TARGETDATE, index, {date: event.target.value});
+                onChangeHandler(TARGETDATE, type, index, {date: event.target.value});
             });
 
             availableDatesCol.appendChild(datePickerInput);
             row.appendChild(availableDatesCol);
-            
             container.appendChild(row);
         });
             
-    }
-
-    function addRow(){
-        console.log("dummy");
     }
     
     function cleanupTherapyList(){
@@ -159,18 +154,14 @@ function createTherapyListComponent(componentId, type, planner) {
         return `${year}-${month}-${day}`;
     }
 
-    function onChangeHandler(target, index, arg){
+    function onChangeHandler(target, type, index, arg){
         console.log('index: ' + index + ' target: ' + target);
         switch (target) {
-            case TARGETTYPE:
-                console.log(arg.type);
-                planner.updateTypeFor(index, arg.type);
-                break;
             case TARGETDATE:
-                planner.updateDateFor(index, new Date(arg.date));
+                planner.updateDateFor(type, index, new Date(arg.date));
                 break;
             case TARGETMINWEEKS:
-                planner.updateMinWeeksFor(index, parseInt(arg.minWeeks));
+                planner.updateMinWeeksFor(type, index, parseInt(arg.minWeeks));
                 break;
         }
     }
@@ -197,7 +188,6 @@ function createTherapyListComponent(componentId, type, planner) {
         midDateCol.textContent = 'Min Date';
         headerRow.appendChild(midDateCol);
         
-      
         // Available Dates column
         const availableDatesCol = document.createElement('div');
         availableDatesCol.classList.add(AVAILABLEDATESCOL, 'd-flex', 'justify-content-center');
