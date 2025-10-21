@@ -182,4 +182,8 @@ class TherapyPlanner {
       }
     }
   }
-  
+
+if (typeof module !== 'undefined') {
+  module.exports = TherapyPlanner;
+}
+
