@@ -1,11 +1,47 @@
+const DEFAULT_VALID_WEEKDAYS = Object.freeze([2, 3, 4]);
+
+function cloneDefaultWeekdays() {
+  return [...DEFAULT_VALID_WEEKDAYS];
+}
+
+function normalizeValidWeekdays(weekdays) {
+  if (!Array.isArray(weekdays)) {
+    return cloneDefaultWeekdays();
+  }
+
+  const sanitized = [...new Set(
+    weekdays
+      .map((day) => Number(day))
+      .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6),
+  )].sort((a, b) => a - b);
+
+  return sanitized.length > 0 ? sanitized : cloneDefaultWeekdays();
+}
+
+function loadScheduleConfig() {
+  if (typeof window !== 'undefined' && window.THERAPY_PLANNER_CONFIG) {
+    return window.THERAPY_PLANNER_CONFIG;
+  }
+
+  if (typeof module !== 'undefined' && module.exports && typeof require === 'function') {
+    try {
+      return require('./config/scheduleConfig.json');
+    } catch (error) {
+      console.warn('Unable to load schedule configuration file, falling back to defaults.', error);
+    }
+  }
+
+  return { validAppointmentWeekdays: cloneDefaultWeekdays() };
+}
+
 class TherapyPlanner {
-    constructor() {
+    constructor(config = loadScheduleConfig()) {
 
       this.listeners = [];
 
       this.today = new Date();
       this.today.setHours(0, 0, 0, 0);
-      this.daysToCheck = [2, 3, 4]; // Tuesday, Wednesday, Thursday represented as 2, 3, 4 (respectively)
+      this.daysToCheck = normalizeValidWeekdays(config && config.validAppointmentWeekdays);
     
       this.newTherapyPlan = {
         [TherapyPlanner.RIGHTEYE] : [
@@ -61,6 +97,10 @@ class TherapyPlanner {
 
     static get MINWEEKS() {
         return [4, 6, 8, 10, 12, 14, 16];
+    }
+
+    static get DEFAULT_VALID_WEEKDAYS() {
+        return cloneDefaultWeekdays();
     }
 
     addListener(listener) {
