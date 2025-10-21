@@ -124,12 +124,13 @@ function createTherapyListComponent(componentId, type, planner) {
             datePickerInput.classList.add('form-control');
             datePickerInput.setAttribute('type','date');
             datePickerInput.setAttribute('id',`${type}-date-${index}`);
-            if(item.minimumDate){
-                if(item.plannedDate - item.minimumDate < 0 ){
-                    datePickerInput.setAttribute('value',formatDate(item.minimumDate));
-                }else {
-                    datePickerInput.setAttribute('value',formatDate(item.plannedDate));
-                }
+            if(item.minimumDate instanceof Date){
+                const formattedMinimumDate = formatDate(item.minimumDate);
+                datePickerInput.setAttribute('min', formattedMinimumDate);
+
+                const hasValidPlannedDate = item.plannedDate instanceof Date && item.plannedDate - item.minimumDate >= 0;
+                const valueToSet = hasValidPlannedDate ? formatDate(item.plannedDate) : formattedMinimumDate;
+                datePickerInput.value = valueToSet;
             }
 
             datePickerInput.addEventListener('change', (event) => {
@@ -196,4 +197,8 @@ function createTherapyListComponent(componentId, type, planner) {
         headerContainer.appendChild(headerRow);
     }
     return card;
+}
+
+if (typeof module !== 'undefined') {
+    module.exports = createTherapyListComponent;
 }
