@@ -30,11 +30,31 @@
     </div>
   </div>
   <script>
-      const planner = new TherapyPlanner();
+    (async () => {
+      let config;
+
+      if (typeof fetch === 'function') {
+        try {
+          const response = await fetch('config/scheduleConfig.json');
+          if (response.ok) {
+            config = await response.json();
+            window.THERAPY_PLANNER_CONFIG = config;
+          } else {
+            console.warn(`Unable to load schedule configuration (status: ${response.status}). Using defaults.`);
+          }
+        } catch (error) {
+          console.warn('Unable to load schedule configuration, using defaults.', error);
+        }
+      } else {
+        console.warn('Fetch API not available; using default schedule configuration.');
+      }
+
+      const planner = new TherapyPlanner(config);
       const rightCard = createTherapyListComponent('cardRightEye', TherapyPlanner.RIGHTEYE, planner);
       const leftCard = createTherapyListComponent('cardLeftEye', TherapyPlanner.LEFTEYE, planner);
       document.getElementById('first').appendChild(rightCard);
       document.getElementById('second').appendChild(leftCard);
-    </script>
+    })();
+  </script>
   </body>
 </html>
