@@ -170,16 +170,16 @@ class TherapyPlanner {
         "plannedDate": ''
       };
       this.newTherapyPlan[type].push(therapy);
-      this.updatePlan();
+      this.updatePlan(type);
       this.notifyListeners();
     }
     removeTherapy(type){
       let therapy = this.newTherapyPlan[type].pop();
       if(therapy)
       {
-        this.updatePlan();
+        this.updatePlan(type);
         this.notifyListeners();
       }
     }
-  } 
+  }
   
