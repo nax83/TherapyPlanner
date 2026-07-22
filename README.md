@@ -42,12 +42,21 @@ npm test
 
 Requires Node.js 18+ (uses the built-in `node:test` runner).
 
+To verify DST-safe arithmetic under a European timezone:
+
+```bash
+TZ=Europe/Berlin npm test
+```
+
 ## Configuration
 
-Edit `config/scheduleConfig.json` to set which weekdays are valid for appointments:
+Edit `config/scheduleConfig.json` to set which weekdays are valid for appointments and the minimum gap between left- and right-eye injections:
 
 ```json
-{ "validAppointmentWeekdays": [2, 3, 4] }
+{
+  "validAppointmentWeekdays": [2, 3, 4],
+  "interEyeGapDays": 14
+}
 ```
 
 Weekday numbers follow the JavaScript `Date.getDay()` convention: `0` = Sunday, `1` = Monday, … `6` = Saturday.
@@ -62,13 +71,17 @@ Weekday numbers follow the JavaScript `Date.getDay()` convention: `0` = Sunday, 
 | 5 | Friday |
 | 6 | Saturday |
 
+`interEyeGapDays` (default `14`) is the minimum number of calendar days that must separate any left-eye appointment from any right-eye appointment.
+
 ## How It Works
 
 1. On load, the planner creates an initial 3-session schedule for each eye, starting from today.
-2. Each session stores a **minimum date** (computed) and a **planned date** (user-selected).
-3. The minimum date for session `N` is computed as: `planned_date(N-1) + (minWeeks × 7 + 1) days`, then advanced to the next valid clinic weekday.
-4. Users can add or remove sessions per eye using the `+` / `−` buttons.
-5. Any edit triggers a full re-cascade from that point forward, keeping the entire schedule consistent.
+2. Each session stores an **earliest same-eye date** (the soonest the same eye may be treated) and a **planned date** (user-selected or automatically computed).
+3. The earliest same-eye date for session `N` is `planned_date(N-1) + minWeeks × 7` calendar days.  
+   *(Exactly `minWeeks × 7` days — no off-by-one.)*
+4. The cross-eye rule requires every left-eye appointment to be at least `interEyeGapDays` calendar days away from every right-eye appointment in both directions.
+5. Users can add or remove sessions per eye using the `+` / `−` buttons.
+6. Any edit triggers a full re-cascade from that point forward, keeping the entire schedule consistent. All dates are computed using calendar-day arithmetic that is safe across DST transitions.
 
 ## Tech Stack
 
