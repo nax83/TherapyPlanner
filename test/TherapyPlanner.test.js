@@ -263,11 +263,11 @@ test('planner accepts custom configuration for valid weekdays', () => {
       'custom configuration should be applied to the planner',
     );
 
-    const tuesday = new Date(Date.UTC(2024, 0, 2));
+    const tuesday = new Date(2024, 0, 2);
     const nextValidDate = planner.getNextValidDate(tuesday);
-    assert.equal(nextValidDate.getUTCDay(), 5, 'next available date should fall on Friday');
+    assert.equal(nextValidDate.getDay(), 5, 'next available date should fall on Friday');
 
-    const friday = new Date(Date.UTC(2024, 0, 5));
+    const friday = new Date(2024, 0, 5);
     assert.equal(planner.isValidWorkingDays(friday), true, 'Friday should be considered a valid working day');
     assert.equal(planner.isValidWorkingDays(tuesday), false, 'Tuesday should not be considered a valid working day');
   } finally {
@@ -282,8 +282,8 @@ test('inter-eye gap: session on one eye must be at least 14 days after any sessi
   try {
     const planner = new TherapyPlanner();
 
-    // anchor both eyes on the same known date
-    const anchor = new Date(Date.UTC(2025, 0, 7)); // Tuesday
+    // anchor both eyes on the same known date (local midnight, Tuesday)
+    const anchor = new Date(2025, 0, 7);
     planner.updateDateFor(TherapyPlanner.RIGHTEYE, 0, anchor);
     planner.updateDateFor(TherapyPlanner.LEFTEYE, 0, anchor);
 

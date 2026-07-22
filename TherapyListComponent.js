@@ -158,9 +158,12 @@ function createTherapyListComponent(componentId, type, planner) {
     function onChangeHandler(target, type, index, arg){
         console.log('index: ' + index + ' target: ' + target);
         switch (target) {
-            case TARGETDATE:
-                planner.updateDateFor(type, index, new Date(arg.date));
+            case TARGETDATE: {
+                // Parse YYYY-MM-DD as local midnight to match planner's local-time dates
+                const [y, m, d] = arg.date.split('-').map(Number);
+                planner.updateDateFor(type, index, new Date(y, m - 1, d));
                 break;
+            }
             case TARGETMINWEEKS:
                 planner.updateMinWeeksFor(type, index, parseInt(arg.minWeeks));
                 break;

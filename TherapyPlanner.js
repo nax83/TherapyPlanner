@@ -107,7 +107,7 @@ class TherapyPlanner {
     getNextValidDate(startDate) {
 
       let nextDate = new Date(startDate.getTime());
-      while (!this.daysToCheck.includes(nextDate.getUTCDay())) {
+      while (!this.daysToCheck.includes(nextDate.getDay())) {
         nextDate = new Date(nextDate.getTime() + 24 * 60 * 60 * 1000);
       }
       return nextDate;
