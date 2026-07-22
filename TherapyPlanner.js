@@ -89,14 +89,13 @@ function addCalendarDays(date, days) {
 }
 
 /**
- * (dateB − dateA) in whole calendar days.
- * Math.round absorbs the ±1 h DST offset between two local-midnight values.
+ * (dateB − dateA) in whole calendar days, using UTC serial numbers.
+ * DST-exact: no rounding or fixed 24-hour arithmetic.
  */
 function calendarDayDifference(dateA, dateB) {
-  return Math.round(
-    (normalizeDate(dateB).getTime() - normalizeDate(dateA).getTime()) /
-    (24 * 60 * 60 * 1000),
-  );
+  const serial = (d) =>
+    Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000;
+  return serial(dateB) - serial(dateA);
 }
 
 /** Format a Date as 'YYYY-MM-DD'. */
@@ -302,9 +301,9 @@ class TherapyPlanner {
         if (diff <= 0 || diff < appt.minWeeks * 7) return false;
       } else {
         // Mutable predecessor: check that it can be scheduled early enough.
-        const earliestPred  = this._earliestPossibleDate(type, i - 1, immutableKeys);
-        const latestValidMs = nd.getTime() - appt.minWeeks * 7 * 24 * 60 * 60 * 1000;
-        if (earliestPred.getTime() > latestValidMs) return false;
+        // Use calendar-day arithmetic — NOT fixed-millisecond subtraction.
+        const earliestPred = this._earliestPossibleDate(type, i - 1, immutableKeys);
+        if (calendarDayDifference(earliestPred, nd) < appt.minWeeks * 7) return false;
       }
     }
 

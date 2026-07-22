@@ -49,11 +49,14 @@ npm test
 
 Requires Node.js 18+ (uses the built-in `node:test` runner and `assert/strict`).
 
-To verify DST-safe calendar arithmetic under a European timezone:
+To verify DST-safe calendar arithmetic under a European timezone and under UTC:
 
 ```bash
 TZ=Europe/Berlin npm test
+TZ=UTC npm test
 ```
+
+All three commands must pass. The test suite includes explicit scenarios across the March 2026 spring DST transition and the October 2026 autumn DST transition.
 
 ## Configuration
 
@@ -190,7 +193,16 @@ Only appointments whose date actually changed are included.
 
 Accepted confirmed anchors (those that remain exactly at their confirmed date) are not included unless they moved.
 
-## Global Validation (`validateSchedule`)
+## Calendar-Day Safety
+
+All therapy intervals are expressed in **calendar days**. No scheduling rule uses fixed 24-hour (86 400 s) arithmetic.
+
+Key invariants:
+- `calendarDayDifference(dateA, dateB)` uses UTC serial numbers (`Date.UTC(year, month, day) / 86400000`), producing an exact integer result without rounding or DST sensitivity.
+- `addCalendarDays(date, n)` uses `Date.setDate()`, which the JavaScript engine advances by calendar date regardless of clock changes.
+- Confirmed-anchor feasibility (`_isConfirmedAnchorEligible`) compares calendar-day differences, not raw timestamps. A predecessor exactly 28 calendar days before a confirmed successor is always accepted, even across a spring or autumn DST transition.
+
+
 
 `validateSchedule()` checks the full schedule against all invariants and returns `{ valid: true }` or `{ valid: false, violations: string[] }`.
 
@@ -278,7 +290,7 @@ No mutation occurs, no listeners are notified.
 |---|---|
 | Language | Vanilla JavaScript (ES2015+, no transpilation) |
 | Styling | Bootstrap 5.3, Bootstrap Icons 1.5, normalize.css (CDN) |
-| Tests | Node.js built-in `node:test` + `assert/strict` (125 tests) |
+| Tests | Node.js built-in `node:test` + `assert/strict` |
 | Build | None — files served as-is |
 
 ## Project Structure

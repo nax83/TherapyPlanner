@@ -19,6 +19,18 @@ function fmt(date) {
   return `${y}-${m}-${dd}`;
 }
 
+/**
+ * Independent calendar-day difference helper for tests.
+ * Uses UTC serial numbers: no fixed 24h arithmetic, no Math.round — DST-exact.
+ * Does NOT delegate to production calendarDayDifference so this acts as an
+ * independent check.
+ */
+function testCalDiff(dateA, dateB) {
+  const serial = (date) =>
+    Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000;
+  return serial(dateB) - serial(dateA);
+}
+
 // All tests use today = Tuesday 6 Jan 2026 unless noted.
 // Jan 1 2026 = Thursday.  Clinic days default = [2,3,4] = Tue/Wed/Thu.
 //
@@ -2022,13 +2034,8 @@ test('spec-v3-test-5: mutable predecessor is scheduled before fixed confirmed su
   assert.equal(rp[2].dateOrigin, 'confirmed');
 
   // right[1] must be between right[0] + 4w and right[2] - 4w.
-  // Use calendar-day arithmetic (DST-safe).
-  function calDiff(a, b) {
-    const norm = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    return Math.round((norm(b) - norm(a)) / (24 * 60 * 60 * 1000));
-  }
-  const r1diff0 = calDiff(rp[0].plannedDate, rp[1].plannedDate);
-  const r1diff2 = calDiff(rp[1].plannedDate, rp[2].plannedDate);
+  const r1diff0 = testCalDiff(rp[0].plannedDate, rp[1].plannedDate);
+  const r1diff2 = testCalDiff(rp[1].plannedDate, rp[2].plannedDate);
   assert.ok(r1diff0 >= rp[1].minWeeks * 7,
     `right[1] must be >= ${rp[1].minWeeks} weeks from right[0]; got ${r1diff0} days`);
   assert.ok(r1diff2 >= rp[2].minWeeks * 7,
@@ -2070,15 +2077,11 @@ test('spec-v3-test-6: infeasible confirmed successor is demoted and moved forwar
   // right[0] stays May5.
   assert.equal(fmt(rp[0].plannedDate), '2026-05-05');
   // right[1] must be >= 4w from May5. Use calendar-day arithmetic (DST-safe).
-  function calDiff6(a, b) {
-    const norm = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    return Math.round((norm(b) - norm(a)) / (24 * 60 * 60 * 1000));
-  }
-  const r1diff = calDiff6(rp[0].plannedDate, rp[1].plannedDate);
+  const r1diff = testCalDiff(rp[0].plannedDate, rp[1].plannedDate);
   assert.ok(r1diff >= rp[1].minWeeks * 7,
     `right[1] must be >= ${rp[1].minWeeks}w from right[0]; got ${r1diff} days`);
   // right[2] must be >= 4w from right[1] and after Jun2 (never moved backward).
-  const r2diff = calDiff6(rp[1].plannedDate, rp[2].plannedDate);
+  const r2diff = testCalDiff(rp[1].plannedDate, rp[2].plannedDate);
   assert.ok(r2diff >= rp[2].minWeeks * 7,
     `right[2] must be >= ${rp[2].minWeeks}w from right[1]; got ${r2diff} days`);
   assert.ok(rp[2].plannedDate >= d(2026, 5, 2),
@@ -2293,47 +2296,56 @@ test('spec-v3-test-11: completed correction appears in changedAppointments', () 
 test('spec-v3-test-12: real two-eye UI redraw after minWeeks mutation', () => {
   withMockDom((createTherapyListComponent, mockDoc) => {
     const planner = new TherapyPlanner({}, { today: TODAY });
-    // default state: right[0]=Jan6, right[1]=Feb3, left[0]=Jan20, left[1]=Feb17
+    // default: right[0]=Jan6, right[1]=Feb3, right[2]=Mar3, left[0]=Jan20, left[1]=Feb17, left[2]=Mar17
 
     const rightComp = createTherapyListComponent('right', TherapyPlanner.RIGHTEYE, planner);
     const leftComp  = createTherapyListComponent('left', TherapyPlanner.LEFTEYE, planner);
     mockDoc.root.appendChild(rightComp);
     mockDoc.root.appendChild(leftComp);
 
-    // Capture pre-mutation dates from the planner.
-    const origRight1 = fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate);
-    const origLeft1  = fmt(planner.getPlanByEye(TherapyPlanner.LEFTEYE)[1].plannedDate);
-
     // Increase left[1] minWeeks 4→6 via the left component's select.
     const sel = leftComp.findById(`${TherapyPlanner.LEFTEYE}-select-1`);
-    if (sel) {
-      sel.value = '6';
-      sel.eventListeners['change'][0]({ target: sel });
-    } else {
-      // If no select, trigger directly.
-      planner.updateMinWeeksFor(TherapyPlanner.LEFTEYE, 1, 6);
-    }
+    assert.ok(sel, 'minWeeks selector for left[1] must exist');
+    sel.value = '6';
+    sel.eventListeners['change'][0]({ target: sel });
 
-    const newRight1 = fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate);
-    const newLeft1  = fmt(planner.getPlanByEye(TherapyPlanner.LEFTEYE)[1].plannedDate);
+    // Expected exact final schedule after left[1] 4→6w change:
+    //   right[0]=Jan6, right[1]=Feb3, right[2]=Mar17
+    //   left[0]=Jan20, left[1]=Mar3, left[2]=Mar31
+    const rp = planner.getPlanByEye(TherapyPlanner.RIGHTEYE);
+    const lp = planner.getPlanByEye(TherapyPlanner.LEFTEYE);
+    assert.equal(fmt(lp[1].plannedDate), '2026-03-03', 'left[1] must move to Mar3');
+    assert.equal(fmt(rp[2].plannedDate), '2026-03-17', 'right[2] must cascade to Mar17');
 
-    // The planner state must have changed.
-    assert.notEqual(newLeft1, origLeft1, 'left[1] date must change after minWeeks increase');
+    // rightComp must display the new right-eye dates.
+    const rightDate1 = rightComp.findById(`${TherapyPlanner.RIGHTEYE}-date-1`);
+    const rightDate2 = rightComp.findById(`${TherapyPlanner.RIGHTEYE}-date-2`);
+    assert.ok(rightDate1, 'rightComp must have right-eye date-1 input after redraw');
+    assert.ok(rightDate2, 'rightComp must have right-eye date-2 input after redraw');
+    assert.equal(rightDate1.value, fmt(rp[1].plannedDate),
+      'rightComp date-1 must display the updated right[1] date');
+    assert.equal(rightDate2.value, fmt(rp[2].plannedDate),
+      'rightComp date-2 must display the updated right[2] date');
 
-    // The right component must display new right-eye dates (not stale).
-    const rightDate1Input = rightComp.findById(`${TherapyPlanner.RIGHTEYE}-date-1`);
-    if (rightDate1Input) {
-      assert.equal(rightDate1Input.value, newRight1,
-        'rightComp must display the updated right[1] date');
-    }
-    // Do NOT search right-eye elements inside leftComp.
-    const leftDate1Input = leftComp.findById(`${TherapyPlanner.LEFTEYE}-date-1`);
-    if (leftDate1Input) {
-      assert.equal(leftDate1Input.value, newLeft1,
-        'leftComp must display the updated left[1] date');
-    }
+    // leftComp must display the new left-eye dates.
+    const leftDate1 = leftComp.findById(`${TherapyPlanner.LEFTEYE}-date-1`);
+    const leftDate2 = leftComp.findById(`${TherapyPlanner.LEFTEYE}-date-2`);
+    assert.ok(leftDate1, 'leftComp must have left-eye date-1 input after redraw');
+    assert.ok(leftDate2, 'leftComp must have left-eye date-2 input after redraw');
+    assert.equal(leftDate1.value, fmt(lp[1].plannedDate),
+      'leftComp must display the updated left[1] date');
+    assert.equal(leftDate2.value, fmt(lp[2].plannedDate),
+      'leftComp must display the updated left[2] date');
 
-    // Verify no stale dates remain by checking planner consistency.
+    // Exact expected values.
+    assert.equal(rightDate2.value, '2026-03-17', 'right[2] input must show Mar17');
+    assert.equal(leftDate1.value,  '2026-03-03', 'left[1] input must show Mar3');
+
+    // Old stale dates must not be displayed.
+    assert.notEqual(leftDate1.value,  '2026-02-17', 'stale Feb17 must not remain in left[1]');
+    assert.notEqual(rightDate2.value, '2026-03-03', 'stale Mar3 must not remain in right[2]');
+
+    // Global validation.
     const v = planner.validateSchedule();
     assert.equal(v.valid, true, v.violations && v.violations.join('; '));
   });
@@ -2354,23 +2366,32 @@ test('spec-v3-test-13: UI redraw shows updated confirmed date after historical c
     mockDoc.root.appendChild(rightComp);
     mockDoc.root.appendChild(leftComp);
 
-    // Correct right[0] from Feb10 → Mar10.
-    const result = planner.updateDateFor(TherapyPlanner.RIGHTEYE, 0, d(2026, 2, 10));
-    assert.equal(result.success, true, result.message || result.reason);
+    // Correct right[0] through the real date-input change handler (Feb10 → Mar10).
+    const rightDate0Before = rightComp.findById(`${TherapyPlanner.RIGHTEYE}-date-0`);
+    assert.ok(rightDate0Before, 'right-eye date-0 input must exist before correction');
+    assert.equal(rightDate0Before.value, '2026-02-10', 'right[0] input must show Feb10 initially');
 
-    // After correction, left[0] must be Mar24.
+    rightDate0Before.value = '2026-03-10';
+    rightDate0Before.eventListeners['change'][0]({ target: rightDate0Before });
+
+    // After handler: planner rebuilt, components re-rendered.
     const lp = planner.getPlanByEye(TherapyPlanner.LEFTEYE);
-    assert.equal(fmt(lp[0].plannedDate), '2026-03-24');
-    assert.equal(lp[0].dateOrigin, 'confirmed');
+    assert.equal(fmt(lp[0].plannedDate), '2026-03-24', 'left[0] must be Mar24 in planner');
+    assert.equal(lp[0].dateOrigin, 'confirmed', 'left[0].dateOrigin must remain confirmed');
 
-    // The left component must display Mar24 (after listener-triggered rebuild).
-    const leftDate0 = leftComp.findById(`${TherapyPlanner.LEFTEYE}-date-0`);
-    if (leftDate0) {
-      assert.equal(leftDate0.value, '2026-03-24',
-        'leftComp must display the moved confirmed date Mar24');
-    }
+    // The left component must show Mar24 (not stale Mar17).
+    const leftDate0After = leftComp.findById(`${TherapyPlanner.LEFTEYE}-date-0`);
+    assert.ok(leftDate0After, 'left-eye date-0 input must exist after correction');
+    assert.equal(leftDate0After.value, '2026-03-24',
+      'leftComp must display the moved confirmed date Mar24');
+    assert.notEqual(leftDate0After.value, '2026-03-17', 'stale Mar17 must not remain');
 
-    // No validation error must remain.
+    // The right component must show Mar10.
+    const rightDate0After = rightComp.findById(`${TherapyPlanner.RIGHTEYE}-date-0`);
+    assert.ok(rightDate0After, 'right-eye date-0 input must exist after correction');
+    assert.equal(rightDate0After.value, '2026-03-10', 'rightComp must display Mar10');
+
+    // No validation error.
     assert.equal(planner.validateSchedule().valid, true);
   });
 });
@@ -2399,4 +2420,271 @@ test('spec-v3-test-14: regression sentinel — prior test suite fully covered', 
       assert.equal(appt.dateOrigin, 'generated', `${eye} default must be generated`);
     }
   }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 13. Spec-v4 Tests — DST safety, exact demotion dates, mandatory DOM asserts
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── 13-1. Independent calendar helper baseline ────────────────────────────
+
+test('spec-v4-test-0: testCalDiff helper is DST-exact across spring and autumn transitions', () => {
+  // Spring 2026 (Europe/Berlin clocks spring forward Mar29).
+  // Feb10 → Apr7 = 56 calendar days (28+28).
+  assert.equal(testCalDiff(d(2026, 1, 10), d(2026, 3, 7)),  56, 'Feb10→Apr7 must be 56 days');
+  assert.equal(testCalDiff(d(2026, 1, 10), d(2026, 2, 10)), 28, 'Feb10→Mar10 must be 28 days');
+  assert.equal(testCalDiff(d(2026, 2, 10), d(2026, 3, 7)),  28, 'Mar10→Apr7 must be 28 days');
+
+  // Autumn 2026 (clocks fall back Oct25).
+  // Oct15 → Nov12 = 28 calendar days.
+  assert.equal(testCalDiff(d(2026, 9, 15), d(2026, 10, 12)), 28, 'Oct15→Nov12 must be 28 days');
+  // Oct21 → Nov4 = 14 days (spans DST end).
+  assert.equal(testCalDiff(d(2026, 9, 21), d(2026, 10, 4)), 14, 'Oct21→Nov4 must be 14 days');
+});
+
+// ── 13-2. Spring DST — addCalendarDays is correct ────────────────────────
+
+test('spec-v4-test-spring-adddays: addCalendarDays across spring DST gives correct calendar dates', () => {
+  // This test calls the production scheduling engine to produce a schedule
+  // that spans the March 2026 DST transition and checks exact output dates.
+  //
+  // Today = Feb10, Right[0] default = Feb10 (Tue), Right[1] = Feb10+28 = Mar10 (Tue).
+  // DST springs forward Mar29, but the arithmetic must still land on Mar10.
+  const planner = new TherapyPlanner({}, { today: d(2026, 1, 10) });
+  const rp = planner.getPlanByEye(TherapyPlanner.RIGHTEYE);
+
+  // Right[1] must be exactly Mar10 (28 calendar days after Feb10).
+  assert.equal(fmt(rp[1].plannedDate), '2026-03-10',
+    'right[1] must be Mar10 — 28 calendar days after Feb10 across spring DST');
+
+  // Verify using independent helper (not production calendarDayDifference).
+  assert.equal(testCalDiff(rp[0].plannedDate, rp[1].plannedDate), 28,
+    'interval right[0]→right[1] must be exactly 28 calendar days');
+});
+
+// ── 13-3. Spring DST — confirmed-anchor feasibility (helper level) ─────────
+
+test('spec-v4-test-spring-anchor-helper: confirmed anchor feasibility is DST-safe (spring)', () => {
+  // Setup:
+  //   Today = Feb10 2026
+  //   Right[0] completed Feb10 (immutable)
+  //   Right[1] generated, minWeeks=4 → earliest schedulable = Mar10
+  //   Right[2] confirmed Apr7, minWeeks=4 → latest valid predecessor = Apr7-28 = Mar10 exactly
+  //
+  // With fixed-ms arithmetic, Apr7 midnight CEST minus 28*24h ≠ Mar10 midnight CET.
+  // The confirmed anchor would be incorrectly rejected. The DST-safe fix must accept it.
+  //
+  // This test MUST FAIL with the old fixed-millisecond implementation.
+  const TODAY_SPRING = d(2026, 1, 10); // Tue Feb10 2026
+  const planner = new TherapyPlanner({}, { today: TODAY_SPRING });
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 1, 10));
+
+  // Set right[2] as confirmed Apr7 (Tue, exactly 28 days from right[1]'s earliest).
+  planner.schedule[TherapyPlanner.RIGHTEYE][2].plannedDate = d(2026, 3, 7);
+  planner.schedule[TherapyPlanner.RIGHTEYE][2].dateOrigin  = 'confirmed';
+
+  // Trigger historical cascade to re-evaluate anchor eligibility.
+  const result = planner.updateDateFor(TherapyPlanner.RIGHTEYE, 0, d(2026, 1, 10));
+  assert.equal(result.success, true, `cascade must succeed; got: ${result.message}`);
+
+  const rp = planner.getPlanByEye(TherapyPlanner.RIGHTEYE);
+
+  // Right[2] must remain exactly Apr7 — it is a valid confirmed anchor.
+  assert.equal(fmt(rp[2].plannedDate), '2026-04-07',
+    'right[2] confirmed anchor must remain Apr7 across spring DST (fixed-ms would reject it)');
+  assert.equal(rp[2].dateOrigin, 'confirmed');
+
+  // Right[1] must be exactly Mar10 (28 days from Feb10, earliest valid date).
+  assert.equal(fmt(rp[1].plannedDate), '2026-03-10',
+    'right[1] must be scheduled to Mar10');
+
+  // Verify intervals using independent helper.
+  assert.equal(testCalDiff(rp[0].plannedDate, rp[1].plannedDate), 28,
+    'right[0]→right[1] must be exactly 28 calendar days');
+  assert.equal(testCalDiff(rp[1].plannedDate, rp[2].plannedDate), 28,
+    'right[1]→right[2] must be exactly 28 calendar days');
+
+  assert.equal(planner.validateSchedule().valid, true);
+});
+
+// ── 13-4. Spring DST — public behaviour (setStatus path) ─────────────────
+
+test('spec-v4-test-spring-public: spring DST fix affects public scheduling behaviour', () => {
+  // Same scenario but entered through setStatus so the confirmed anchor is
+  // evaluated immediately at completion time.
+  const TODAY_SPRING = d(2026, 1, 10); // Feb10
+  const planner = new TherapyPlanner({}, { today: TODAY_SPRING });
+
+  // Pre-set right[2] as confirmed Apr7 before completing right[0].
+  planner.schedule[TherapyPlanner.RIGHTEYE][2].plannedDate = d(2026, 3, 7);
+  planner.schedule[TherapyPlanner.RIGHTEYE][2].dateOrigin  = 'confirmed';
+
+  // Complete right[0] via public setStatus — triggers historical cascade.
+  const result = planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 1, 10));
+  assert.equal(result.success, true, `setStatus must succeed; got: ${result.message}`);
+
+  const rp = planner.getPlanByEye(TherapyPlanner.RIGHTEYE);
+
+  // Apr7 must be retained as fixed anchor.
+  assert.equal(fmt(rp[2].plannedDate), '2026-04-07',
+    'right[2] confirmed anchor must be retained after setStatus across spring DST');
+  assert.equal(rp[2].dateOrigin, 'confirmed');
+
+  // Right[1] must be Mar10 (exactly 28 calendar days from Feb10).
+  assert.equal(fmt(rp[1].plannedDate), '2026-03-10',
+    'right[1] must be Mar10 (28 days from Feb10)');
+
+  assert.equal(testCalDiff(rp[0].plannedDate, rp[1].plannedDate), 28,
+    'right[0]→right[1] interval must be exactly 28 calendar days');
+  assert.equal(testCalDiff(rp[1].plannedDate, rp[2].plannedDate), 28,
+    'right[1]→right[2] interval must be exactly 28 calendar days');
+
+  assert.equal(planner.validateSchedule().valid, true);
+});
+
+// ── 13-5. Autumn DST — calendar arithmetic ────────────────────────────────
+
+test('spec-v4-test-autumn: calendar arithmetic is correct across autumn DST (Europe/Berlin)', () => {
+  // Europe/Berlin clocks fall back on 2026-10-25 (CEST→CET).
+  //
+  // Oct15 2026 = Tue. +28 calendar days = Nov12 2026 (Tue).
+  // Without DST-safe arithmetic, 28*24h from Oct15 00:00 CEST may land on
+  // a different day.
+  const AUTUMN_TODAY = d(2026, 9, 15); // Tue Oct15 2026
+  const planner = new TherapyPlanner({}, { today: AUTUMN_TODAY });
+  const rp = planner.getPlanByEye(TherapyPlanner.RIGHTEYE);
+
+  // Right[1] = Oct15 + 28 calendar days = Nov12.
+  assert.equal(fmt(rp[1].plannedDate), '2026-11-12',
+    'right[1] must be Nov12 — 28 calendar days after Oct15 across autumn DST');
+  assert.equal(testCalDiff(rp[0].plannedDate, rp[1].plannedDate), 28,
+    'right[0]→right[1] must be exactly 28 calendar days');
+
+  // Subtraction direction: Oct15 + 28 - 28 = Oct15.
+  assert.equal(fmt(rp[0].plannedDate), '2026-10-15', 'right[0] must be Oct15');
+  assert.equal(testCalDiff(rp[1].plannedDate, rp[2].plannedDate), 28,
+    'right[1]→right[2] must be exactly 28 calendar days');
+
+  // Also verify confirmed-anchor feasibility across autumn DST.
+  // Set right[2] as confirmed right[1]+28 = Nov12+28 = Dec10 (Thu, clinic day).
+  const planner2 = new TherapyPlanner({}, { today: AUTUMN_TODAY });
+  planner2.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 9, 15));
+  planner2.schedule[TherapyPlanner.RIGHTEYE][2].plannedDate = d(2026, 11, 10); // Dec10
+  planner2.schedule[TherapyPlanner.RIGHTEYE][2].dateOrigin  = 'confirmed';
+
+  const result2 = planner2.updateDateFor(TherapyPlanner.RIGHTEYE, 0, d(2026, 9, 15));
+  assert.equal(result2.success, true, result2.message);
+
+  const rp2 = planner2.getPlanByEye(TherapyPlanner.RIGHTEYE);
+  assert.equal(fmt(rp2[2].plannedDate), '2026-12-10',
+    'right[2] confirmed anchor (Dec10) must be retained across autumn DST');
+  assert.equal(rp2[2].dateOrigin, 'confirmed');
+  assert.equal(testCalDiff(rp2[1].plannedDate, rp2[2].plannedDate), 28,
+    'right[1]→right[2] must be exactly 28 calendar days');
+
+  assert.equal(planner.validateSchedule().valid, true);
+  assert.equal(planner2.validateSchedule().valid, true);
+});
+
+// ── 13-6. Exact confirmed-successor demotion dates ────────────────────────
+
+test('spec-v4-test-6-exact: exact demotion dates when confirmed successor is infeasible', () => {
+  // Today = May5 2026 (Tue).
+  // Right[0] completed May5. Right[1] generated 4w. Right[2] confirmed Jun2 4w.
+  // Jun2 - May5 = 28 days → right[1] earliest = May5+28 = Jun2.
+  // calendarDayDiff(Jun2, Jun2) = 0 < 28 → confirmed anchor infeasible → demoted.
+  //
+  // Expected exact result:
+  //   Right[0] = May5
+  //   Right[1] = Jun2   (May5+28)
+  //   Right[2] = Jun30  (Jun2+28, demoted and moved forward)
+  const TODAY5 = d(2026, 4, 5); // Tue May5 2026
+  const planner = new TherapyPlanner({}, { today: TODAY5 });
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 4, 5));
+
+  planner.schedule[TherapyPlanner.RIGHTEYE][2].plannedDate = d(2026, 5, 2); // Jun2
+  planner.schedule[TherapyPlanner.RIGHTEYE][2].dateOrigin  = 'confirmed';
+
+  const result = planner.updateDateFor(TherapyPlanner.RIGHTEYE, 0, d(2026, 4, 5));
+  assert.equal(result.success, true, `cascade must succeed; got: ${result.message}`);
+
+  const rp = planner.getPlanByEye(TherapyPlanner.RIGHTEYE);
+
+  // Exact expected dates.
+  assert.equal(fmt(rp[0].plannedDate), '2026-05-05', 'right[0] must be May5');
+  assert.equal(fmt(rp[1].plannedDate), '2026-06-02', 'right[1] must be Jun2 (May5+28)');
+  assert.equal(fmt(rp[2].plannedDate), '2026-06-30', 'right[2] must be Jun30 (Jun2+28, not farther)');
+
+  // dateOrigin preserved.
+  assert.equal(rp[2].dateOrigin, 'confirmed', 'right[2] must remain confirmed after demotion');
+
+  // Intervals verified with independent helper.
+  assert.equal(testCalDiff(rp[0].plannedDate, rp[1].plannedDate), 28,
+    'right[0]→right[1] must be exactly 28 calendar days');
+  assert.equal(testCalDiff(rp[1].plannedDate, rp[2].plannedDate), 28,
+    'right[1]→right[2] must be exactly 28 calendar days');
+
+  // changedAppointments must report right[2] with exact old/new values.
+  const r2entry = result.changedAppointments.find(
+    c => c.type === TherapyPlanner.RIGHTEYE && c.index === 2,
+  );
+  assert.ok(r2entry, 'changedAppointments must include right[2]');
+  assert.equal(r2entry.oldDate, '2026-06-02', 'old date must be Jun2');
+  assert.equal(r2entry.newDate, '2026-06-30', 'new date must be Jun30');
+
+  assert.equal(planner.validateSchedule().valid, true);
+});
+
+// ── 13-7. Real UI historical correction through date-input handler ─────────
+
+test('spec-v4-test-ui-hist: real UI historical correction through date input change handler', () => {
+  withMockDom((createTherapyListComponent, mockDoc) => {
+    const TODAY3 = d(2026, 2, 17); // Mar17
+    const planner = new TherapyPlanner({}, { today: TODAY3 });
+    planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 1, 10));
+    planner.schedule[TherapyPlanner.LEFTEYE][0].plannedDate = d(2026, 2, 17);
+    planner.schedule[TherapyPlanner.LEFTEYE][0].dateOrigin  = 'confirmed';
+
+    const rightComp = createTherapyListComponent('right', TherapyPlanner.RIGHTEYE, planner);
+    const leftComp  = createTherapyListComponent('left',  TherapyPlanner.LEFTEYE,  planner);
+    mockDoc.root.appendChild(rightComp);
+    mockDoc.root.appendChild(leftComp);
+
+    // Assert initial state: right[0] shows Feb10, left[0] shows Mar17.
+    const rightDate0Before = rightComp.findById(`${TherapyPlanner.RIGHTEYE}-date-0`);
+    assert.ok(rightDate0Before, 'right[0] date input must exist before correction');
+    assert.equal(rightDate0Before.value, '2026-02-10', 'right[0] must initially show Feb10');
+
+    const leftDate0Before = leftComp.findById(`${TherapyPlanner.LEFTEYE}-date-0`);
+    assert.ok(leftDate0Before, 'left[0] date input must exist before correction');
+    assert.equal(leftDate0Before.value, '2026-03-17', 'left[0] must initially show Mar17');
+
+    // Simulate user changing right[0] from Feb10 → Mar10 via the input handler.
+    // Do NOT call planner.updateDateFor directly.
+    rightDate0Before.value = '2026-03-10';
+    rightDate0Before.eventListeners['change'][0]({ target: rightDate0Before });
+
+    // Both components rebuild after the cascade.
+    const rightDate0After = rightComp.findById(`${TherapyPlanner.RIGHTEYE}-date-0`);
+    const leftDate0After  = leftComp.findById(`${TherapyPlanner.LEFTEYE}-date-0`);
+
+    assert.ok(rightDate0After, 'right[0] date input must exist after correction');
+    assert.ok(leftDate0After,  'left[0] date input must exist after correction');
+
+    // Exact expected values after correction.
+    assert.equal(rightDate0After.value, '2026-03-10', 'right[0] must display Mar10');
+    assert.equal(leftDate0After.value,  '2026-03-24', 'left[0] must display Mar24');
+
+    // Old stale Mar17 must not remain.
+    assert.notEqual(leftDate0After.value, '2026-03-17', 'stale Mar17 must not remain in left[0]');
+
+    // Planner model must agree.
+    const rp = planner.getPlanByEye(TherapyPlanner.RIGHTEYE);
+    const lp = planner.getPlanByEye(TherapyPlanner.LEFTEYE);
+    assert.equal(fmt(rp[0].plannedDate), '2026-03-10');
+    assert.equal(fmt(lp[0].plannedDate), '2026-03-24');
+    assert.equal(lp[0].dateOrigin, 'confirmed', 'left[0].dateOrigin must remain confirmed');
+
+    assert.equal(planner.validateSchedule().valid, true);
+  });
 });
