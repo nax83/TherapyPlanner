@@ -1,13 +1,29 @@
 function createTherapyListComponent(componentId, type, planner) {
 
     const eyes = { [TherapyPlanner.LEFTEYE]: 'Left eye', [TherapyPlanner.RIGHTEYE]: 'Right eye' };
-    const TARGETMINWEEKS = 'minWeeks';
-    const TARGETDATE = 'date';
-    const INDEXCOLWIDTH = 'col-1';
-    const STATUSCOLWIDTH = 'col-2';
-    const MINWEEKSCOLWIDTH = 'col-2';
-    const MINIMUMDATECOL = 'col-3';
+    const TARGETMINWEEKS    = 'minWeeks';
+    const TARGETDATE        = 'date';
+    const INDEXCOLWIDTH     = 'col-1';
+    const STATUSCOLWIDTH    = 'col-2';
+    const MINWEEKSCOLWIDTH  = 'col-2';
+    const MINIMUMDATECOL    = 'col-3';
     const AVAILABLEDATESCOL = 'col-4';
+
+    // ── Component state ───────────────────────────────────────────────────────
+    // Keyed message state survives planner-triggered redraws.
+    const _messages = {};   // { "RIGHTEYE_0": { error: null, warning: null }, ... }
+    let _pendingCompletion = null; // { index } — row waiting for a historical date
+    let _selfUpdating = false;     // suppress listener-triggered rebuild during own operations
+
+    function msgKey(idx) { return `${type}_${idx}`; }
+
+    function setMsg(idx, field, value) {
+        const k = msgKey(idx);
+        if (!_messages[k]) _messages[k] = { error: null, warning: null };
+        _messages[k][field] = value || null;
+    }
+    function clearMsgs(idx) { _messages[msgKey(idx)] = { error: null, warning: null }; }
+    function getMsg(idx, field) { return (_messages[msgKey(idx)] || {})[field] || null; }
 
     planner.addListener(onPlanUpdate);
 
@@ -41,9 +57,19 @@ function createTherapyListComponent(componentId, type, planner) {
     minusIcon.classList.add('bi', 'bi-dash-circle');
 
     addButton.appendChild(plusIcon);
-    addButton.addEventListener('click', () => { planner.addTherapy(type); });
+    addButton.addEventListener('click', () => {
+        _selfUpdating = true;
+        planner.addTherapy(type);
+        _selfUpdating = false;
+        buildPlan();
+    });
     removeButton.appendChild(minusIcon);
-    removeButton.addEventListener('click', () => { planner.removeTherapy(type); });
+    removeButton.addEventListener('click', () => {
+        _selfUpdating = true;
+        planner.removeTherapy(type);
+        _selfUpdating = false;
+        buildPlan();
+    });
 
     cardHeader.appendChild(cardHeaderLabel);
     cardHeader.appendChild(addButton);
@@ -65,9 +91,14 @@ function createTherapyListComponent(componentId, type, planner) {
     buildHeader();
     buildPlan();
 
+    // ── Listeners ─────────────────────────────────────────────────────────────
+
     function onPlanUpdate() {
-        buildPlan();
+        // Suppress re-entry during own operations; external triggers always rebuild.
+        if (!_selfUpdating) buildPlan();
     }
+
+    // ── Build DOM ─────────────────────────────────────────────────────────────
 
     function buildPlan() {
         cleanupTherapyList();
@@ -76,54 +107,61 @@ function createTherapyListComponent(componentId, type, planner) {
             row.classList.add('row', 'align-items-center', 'mt-2');
 
             const isCompleted = item.status === TherapyPlanner.STATUS_COMPLETED;
+            const isPending   = _pendingCompletion !== null && _pendingCompletion.index === index;
 
-            // Index column
+            // ── Index column ─────────────────────────────────────────────────
             const indexCol = document.createElement('div');
             indexCol.classList.add(INDEXCOLWIDTH, 'd-flex', 'justify-content-center');
             indexCol.textContent = index + 1;
             row.appendChild(indexCol);
 
-            // Status column
+            // ── Status column ────────────────────────────────────────────────
             const statusCol = document.createElement('div');
             statusCol.classList.add(STATUSCOLWIDTH, 'd-flex', 'justify-content-center');
+
             const statusSelect = document.createElement('select');
             statusSelect.classList.add('form-select', 'form-select-sm');
             statusSelect.setAttribute('id', `${type}-status-${index}`);
             statusSelect.setAttribute('aria-label', `Status for session ${index + 1}`);
+
             [TherapyPlanner.STATUS_PLANNED, TherapyPlanner.STATUS_COMPLETED].forEach(val => {
                 const opt = document.createElement('option');
                 opt.setAttribute('value', val);
-                if (item.status === val) opt.setAttribute('selected', 'selected');
+                // If pending, show "completed" selected but not yet committed
+                const effectiveStatus = isPending ? TherapyPlanner.STATUS_COMPLETED : item.status;
+                if (effectiveStatus === val) opt.setAttribute('selected', 'selected');
                 opt.appendChild(document.createTextNode(val.charAt(0).toUpperCase() + val.slice(1)));
                 statusSelect.appendChild(opt);
             });
+
             statusSelect.addEventListener('change', (event) => {
                 const newStatus = event.target.value;
                 if (newStatus === TherapyPlanner.STATUS_COMPLETED) {
-                    // Use today as the historical date when marking completed
-                    const today = planner.today;
-                    const result = planner.setStatus(type, index, TherapyPlanner.STATUS_COMPLETED, today);
-                    if (!result.success) {
-                        event.target.value = item.status; // rollback
-                        showRowError(row, result.message);
-                    } else {
-                        clearRowError(row);
-                        if (result.warnings && result.warnings.length) showRowWarning(row, result.warnings[0]);
-                    }
+                    // Open inline date picker — do NOT commit yet
+                    _pendingCompletion = { index };
+                    _selfUpdating = true;
+                    // (no planner mutation — just show form)
+                    _selfUpdating = false;
+                    buildPlan();
                 } else {
+                    // Revert completed → planned
+                    _selfUpdating = true;
                     const result = planner.setStatus(type, index, TherapyPlanner.STATUS_PLANNED);
+                    _selfUpdating = false;
+                    clearMsgs(index);
                     if (!result.success) {
-                        event.target.value = item.status; // rollback
-                        showRowError(row, result.message);
-                    } else {
-                        clearRowError(row);
+                        event.target.value = item.status;
+                        setMsg(index, 'error', result.message);
                     }
+                    buildPlan();
                 }
             });
+
+            statusSelect.value = isPending ? TherapyPlanner.STATUS_COMPLETED : item.status;
             statusCol.appendChild(statusSelect);
             row.appendChild(statusCol);
 
-            // Min Weeks column
+            // ── Min Weeks column ─────────────────────────────────────────────
             const minWeeksCol = document.createElement('div');
             minWeeksCol.classList.add(MINWEEKSCOLWIDTH, 'd-flex', 'justify-content-center');
             if (index === 0) {
@@ -141,13 +179,16 @@ function createTherapyListComponent(componentId, type, planner) {
                     selectMinWeeksInput.appendChild(option);
                 });
                 selectMinWeeksInput.addEventListener('change', (event) => {
+                    _selfUpdating = true;
                     planner.updateMinWeeksFor(type, index, parseInt(event.target.value));
+                    _selfUpdating = false;
+                    buildPlan();
                 });
                 minWeeksCol.appendChild(selectMinWeeksInput);
             }
             row.appendChild(minWeeksCol);
 
-            // Min Date column (earliest same-eye date — shown for planned only)
+            // ── Min Date column ──────────────────────────────────────────────
             const minDateCol = document.createElement('div');
             minDateCol.classList.add(MINIMUMDATECOL, 'd-flex', 'justify-content-center');
             if (isCompleted) {
@@ -164,69 +205,112 @@ function createTherapyListComponent(componentId, type, planner) {
             }
             row.appendChild(minDateCol);
 
-            // Date picker column
+            // ── Date / form column ───────────────────────────────────────────
             const availableDatesCol = document.createElement('div');
             availableDatesCol.classList.add(AVAILABLEDATESCOL, 'd-flex', 'justify-content-center');
 
-            const datePickerInput = document.createElement('input');
-            datePickerInput.classList.add('form-control');
-            datePickerInput.setAttribute('type', 'date');
-            datePickerInput.setAttribute('id', `${type}-date-${index}`);
-            datePickerInput.setAttribute('aria-label', `Appointment date for session ${index + 1}`);
+            if (isPending) {
+                // Inline atomic form: user picks the historical date and confirms/cancels.
+                const completeDateInput = document.createElement('input');
+                completeDateInput.classList.add('form-control');
+                completeDateInput.setAttribute('type', 'date');
+                completeDateInput.setAttribute('id', `${type}-complete-date-${index}`);
+                completeDateInput.setAttribute('aria-label', `Historical date for session ${index + 1}`);
+                completeDateInput.setAttribute('max', formatDate(planner.today));
 
-            if (isCompleted) {
-                // Completed: allow any past date up to today; no min restriction
-                datePickerInput.setAttribute('max', formatDate(planner.today));
-            } else if (index === 0) {
-                datePickerInput.setAttribute('min', formatDate(planner.today));
-            } else if (item.earliestSameEyeDate instanceof Date) {
-                datePickerInput.setAttribute('min', formatDate(item.earliestSameEyeDate));
+                const confirmBtn = document.createElement('button');
+                confirmBtn.classList.add('btn', 'btn-sm', 'btn-success', 'ms-1');
+                confirmBtn.setAttribute('id', `${type}-complete-confirm-${index}`);
+                confirmBtn.textContent = 'OK';
+                confirmBtn.addEventListener('click', () => {
+                    const raw = completeDateInput.value;
+                    if (!raw) { setMsg(index, 'error', 'Please enter a date.'); buildPlan(); return; }
+                    const [y, m, d] = raw.split('-').map(Number);
+                    _selfUpdating = true;
+                    const result = planner.setStatus(type, index, TherapyPlanner.STATUS_COMPLETED, new Date(y, m - 1, d));
+                    _selfUpdating = false;
+                    _pendingCompletion = null;
+                    clearMsgs(index);
+                    if (!result.success) {
+                        setMsg(index, 'error', result.message);
+                    } else if (result.warnings && result.warnings.length) {
+                        setMsg(index, 'warning', result.warnings[0]);
+                    }
+                    buildPlan();
+                });
+
+                const cancelBtn = document.createElement('button');
+                cancelBtn.classList.add('btn', 'btn-sm', 'btn-secondary', 'ms-1');
+                cancelBtn.setAttribute('id', `${type}-complete-cancel-${index}`);
+                cancelBtn.textContent = 'Cancel';
+                cancelBtn.addEventListener('click', () => {
+                    _pendingCompletion = null;
+                    clearMsgs(index);
+                    buildPlan();
+                });
+
+                availableDatesCol.appendChild(completeDateInput);
+                availableDatesCol.appendChild(confirmBtn);
+                availableDatesCol.appendChild(cancelBtn);
+            } else {
+                const datePickerInput = document.createElement('input');
+                datePickerInput.classList.add('form-control');
+                datePickerInput.setAttribute('type', 'date');
+                datePickerInput.setAttribute('id', `${type}-date-${index}`);
+                datePickerInput.setAttribute('aria-label', `Appointment date for session ${index + 1}`);
+
+                if (isCompleted) {
+                    datePickerInput.setAttribute('max', formatDate(planner.today));
+                } else if (index === 0) {
+                    datePickerInput.setAttribute('min', formatDate(planner.today));
+                } else if (item.earliestSameEyeDate instanceof Date) {
+                    datePickerInput.setAttribute('min', formatDate(item.earliestSameEyeDate));
+                }
+
+                const valueToSet = item.plannedDate instanceof Date ? formatDate(item.plannedDate) : '';
+                datePickerInput.value = valueToSet;
+                const renderValue = valueToSet;
+
+                datePickerInput.addEventListener('change', (event) => {
+                    const rawValue = event.target.value;
+                    if (!rawValue) return;
+                    const [y, m, d] = rawValue.split('-').map(Number);
+                    _selfUpdating = true;
+                    const result = planner.updateDateFor(type, index, new Date(y, m - 1, d));
+                    _selfUpdating = false;
+                    clearMsgs(index);
+                    if (!result.success) {
+                        event.target.value = renderValue;
+                        setMsg(index, 'error', result.message);
+                    } else if (result.warnings && result.warnings.length) {
+                        setMsg(index, 'warning', result.warnings[0]);
+                    }
+                    buildPlan();
+                });
+
+                availableDatesCol.appendChild(datePickerInput);
             }
 
-            const valueToSet = item.plannedDate instanceof Date ? formatDate(item.plannedDate) : '';
-            datePickerInput.value = valueToSet;
-            const renderValue = valueToSet;
-
-            datePickerInput.addEventListener('change', (event) => {
-                const rawValue = event.target.value;
-                if (!rawValue) return;
-                const [y, m, d] = rawValue.split('-').map(Number);
-                const result = planner.updateDateFor(type, index, new Date(y, m - 1, d));
-                if (!result.success) {
-                    event.target.value = renderValue;
-                    showRowError(row, result.message);
-                } else {
-                    clearRowError(row);
-                    if (result.warnings && result.warnings.length) showRowWarning(row, result.warnings[0]);
-                }
-            });
-
-            availableDatesCol.appendChild(datePickerInput);
             row.appendChild(availableDatesCol);
+
+            // ── Persistent messages ──────────────────────────────────────────
+            const err  = getMsg(index, 'error');
+            const warn = getMsg(index, 'warning');
+            if (err) {
+                const errorDiv = document.createElement('div');
+                errorDiv.classList.add('text-danger', 'w-100', 'mt-1', 'therapy-error');
+                errorDiv.textContent = err;
+                row.appendChild(errorDiv);
+            }
+            if (warn) {
+                const warnDiv = document.createElement('div');
+                warnDiv.classList.add('text-warning', 'w-100', 'mt-1', 'therapy-warning');
+                warnDiv.textContent = warn;
+                row.appendChild(warnDiv);
+            }
+
             container.appendChild(row);
         });
-    }
-
-    function showRowError(row, message) {
-        clearRowError(row);
-        const errorDiv = document.createElement('div');
-        errorDiv.classList.add('text-danger', 'w-100', 'mt-1', 'therapy-error');
-        errorDiv.textContent = message;
-        row.appendChild(errorDiv);
-    }
-
-    function showRowWarning(row, message) {
-        const warnDiv = document.createElement('div');
-        warnDiv.classList.add('text-warning', 'w-100', 'mt-1', 'therapy-warning');
-        warnDiv.textContent = message;
-        row.appendChild(warnDiv);
-    }
-
-    function clearRowError(row) {
-        const toRemove = Array.from
-            ? Array.from(row.children).filter(c => c.classList && c.classList.contains('therapy-error'))
-            : row.children.filter(c => c.classList && c.classList.contains('therapy-error'));
-        toRemove.forEach(e => row.removeChild(e));
     }
 
     function cleanupTherapyList() {
@@ -234,9 +318,9 @@ function createTherapyListComponent(componentId, type, planner) {
     }
 
     function formatDate(date) {
-        const year = date.getFullYear();
+        const year  = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
+        const day   = String(date.getDate()).padStart(2, '0');
         return `${year}-${month}-${day}`;
     }
 
