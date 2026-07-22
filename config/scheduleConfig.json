@@ -1,3 +1,4 @@
 {
-  "validAppointmentWeekdays": [2, 3, 4]
+  "validAppointmentWeekdays": [2, 3, 4],
+  "interEyeGapDays": 14
 }

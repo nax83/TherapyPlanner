@@ -144,6 +144,14 @@ function createTherapyListComponent(componentId, type, planner) {
                     _selfUpdating = false;
                     buildPlan();
                 } else {
+                    // If a pending completion for this row is open, cancelling via the selector
+                    // is a UI-only cancellation — the underlying appointment is still planned.
+                    if (_pendingCompletion !== null && _pendingCompletion.index === index) {
+                        _pendingCompletion = null;
+                        clearMsgs(index);
+                        buildPlan();
+                        return;
+                    }
                     // Revert completed → planned
                     _selfUpdating = true;
                     const result = planner.setStatus(type, index, TherapyPlanner.STATUS_PLANNED);
@@ -179,9 +187,16 @@ function createTherapyListComponent(componentId, type, planner) {
                     selectMinWeeksInput.appendChild(option);
                 });
                 selectMinWeeksInput.addEventListener('change', (event) => {
+                    const oldMinWeeks = item.minWeeks;
+                    const newVal = parseInt(event.target.value);
                     _selfUpdating = true;
-                    planner.updateMinWeeksFor(type, index, parseInt(event.target.value));
+                    const result = planner.updateMinWeeksFor(type, index, newVal);
                     _selfUpdating = false;
+                    clearMsgs(index);
+                    if (!result.success) {
+                        event.target.value = String(oldMinWeeks); // restore dropdown
+                        setMsg(index, 'error', result.message);
+                    }
                     buildPlan();
                 });
                 minWeeksCol.appendChild(selectMinWeeksInput);

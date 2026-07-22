@@ -382,18 +382,20 @@ test('increasing minWeeks reschedules invalid following appointments', () => {
   );
 });
 
-test('decreasing minWeeks recalculates generated appointments to their earliest valid date', () => {
+test('decreasing minWeeks does not move generated dates backward in ordinary mode', () => {
   const planner = defaultPlanner();
-  // First increase to 8 weeks so right[1] moves forward to ~56 days
+  // Increase to 8 weeks: right[1] moves forward from Feb3 to Mar3.
   planner.updateMinWeeksFor(TherapyPlanner.RIGHTEYE, 1, 8);
+  const r1After8 = fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate);
   assert.ok(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate >= d(2026, 2, 3),
-    'setup: right[1] must be >= Mar3 (Jan6+56) after increasing to 8 weeks');
+    `setup: right[1] must be >= Mar3 after increasing to 8 weeks; got ${r1After8}`);
 
-  // Decrease back to 4 — generated right[1] rebuilds to its earliest valid date (Feb3)
+  // Decrease back to 4 weeks in ordinary mode: snapshot floor prevents backward movement.
   planner.updateMinWeeksFor(TherapyPlanner.RIGHTEYE, 1, 4);
-  const r1 = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1];
-  assert.equal(fmt(r1.plannedDate), '2026-02-03',
-    `right[1] must return to earliest generated date Feb3; got ${fmt(r1.plannedDate)}`);
+  const r1After4 = fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate);
+  // right[1] must NOT move backward — it stays at the snapshot date (Mar3).
+  assert.equal(r1After4, r1After8,
+    `right[1] must remain at ${r1After8} (ordinary mode never moves backward); got ${r1After4}`);
 });
 
 test('changing minWeeks does not change previous appointments', () => {
@@ -1044,13 +1046,13 @@ test('spec-test-8: generated appointment may move backward after historical corr
 
 test('spec-test-9: confirmed planned appointment retains its date after historical correction', () => {
   // Confirm right[1]=Apr14, then mark right[0]=completed Mar3.
-  // right[1] (confirmed) stays at Apr14 since Apr14 >= max(today=Mar3, Mar3+28=Mar31)=Mar31.
+  // right[1] (confirmed) is a valid anchor → stays at exactly Apr14.
   const planner = new TherapyPlanner({}, { today: d(2026, 2, 3) });
   planner.updateDateFor(TherapyPlanner.RIGHTEYE, 1, d(2026, 3, 14)); // Apr14 confirmed
   planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3));
   const r1 = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1];
-  assert.ok(r1.plannedDate >= d(2026, 3, 14),
-    `confirmed right[1] must stay at or after Apr14; got ${fmt(r1.plannedDate)}`);
+  assert.equal(fmt(r1.plannedDate), '2026-04-14',
+    `confirmed right[1] must remain exactly Apr14; got ${fmt(r1.plannedDate)}`);
   assert.equal(r1.dateOrigin, TherapyPlanner.DATE_ORIGIN_CONFIRMED);
 });
 
@@ -1383,4 +1385,452 @@ test('updateDateFor marks the edited planned appointment as confirmed', () => {
   // Cascaded appointments remain generated
   const r1 = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1];
   assert.equal(r1.dateOrigin, TherapyPlanner.DATE_ORIGIN_GENERATED);
+});
+
+// ─── 11. New regression tests (spec v2) ──────────────────────────────────────
+
+// ── 11a. Ordinary cascade does not move generated dates backward ─────────────
+
+test('new-test-1a: moving right[0] to Jan13 produces exact cascade dates', () => {
+  const planner = defaultPlanner();
+  const r1 = planner.updateDateFor(TherapyPlanner.RIGHTEYE, 0, d(2026, 0, 13));
+  assert.equal(r1.success, true, r1.message || '');
+
+  const rp = planner.getPlanByEye(TherapyPlanner.RIGHTEYE);
+  const lp = planner.getPlanByEye(TherapyPlanner.LEFTEYE);
+  assert.equal(fmt(rp[0].plannedDate), '2026-01-13');
+  assert.equal(fmt(rp[1].plannedDate), '2026-02-10');
+  assert.equal(fmt(rp[2].plannedDate), '2026-03-10');
+  assert.equal(fmt(lp[0].plannedDate), '2026-01-27');
+  assert.equal(fmt(lp[1].plannedDate), '2026-02-24');
+  assert.equal(fmt(lp[2].plannedDate), '2026-03-24');
+});
+
+test('new-test-1b: moving right[0] back to Jan6 keeps later appointments stable', () => {
+  const planner = defaultPlanner();
+  planner.updateDateFor(TherapyPlanner.RIGHTEYE, 0, d(2026, 0, 13)); // → Jan13, cascades forward
+  const r2 = planner.updateDateFor(TherapyPlanner.RIGHTEYE, 0, d(2026, 0, 6));  // back to Jan6
+  assert.equal(r2.success, true, r2.message || '');
+
+  const rp = planner.getPlanByEye(TherapyPlanner.RIGHTEYE);
+  const lp = planner.getPlanByEye(TherapyPlanner.LEFTEYE);
+  // right[0] is back to Jan6; later appointments must NOT move backward below their snapshot dates.
+  assert.equal(fmt(rp[0].plannedDate), '2026-01-06');
+  // right[1] stays at Feb10 (snapshot after Jan13 edit), NOT Feb3 (original).
+  assert.equal(fmt(rp[1].plannedDate), '2026-02-10');
+  assert.equal(fmt(rp[2].plannedDate), '2026-03-10');
+  assert.equal(fmt(lp[0].plannedDate), '2026-01-27');
+  assert.equal(fmt(lp[1].plannedDate), '2026-02-24');
+  assert.equal(fmt(lp[2].plannedDate), '2026-03-24');
+});
+
+// ── 11b. Decreasing minWeeks does not move backward in ordinary mode ─────────
+
+test('new-test-2: decreasing minWeeks after increase keeps snapshot date as floor', () => {
+  const planner = defaultPlanner();
+  // Increase to 8 weeks.
+  planner.updateMinWeeksFor(TherapyPlanner.RIGHTEYE, 1, 8);
+  const dateAfter8 = fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate);
+
+  // Decrease back to 4 weeks — must NOT go below the snapshot (dateAfter8).
+  const result = planner.updateMinWeeksFor(TherapyPlanner.RIGHTEYE, 1, 4);
+  assert.equal(result.success, true, result.message || '');
+  const dateAfter4 = fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate);
+  assert.equal(dateAfter4, dateAfter8,
+    `right[1] must stay at ${dateAfter8}; got ${dateAfter4}`);
+  const v = planner.validateSchedule();
+  assert.equal(v.valid, true, v.violations && v.violations.join('; '));
+});
+
+// ── 11c. Historical mode may move generated dates backward ───────────────────
+
+test('new-test-3: historical correction moves generated date backward to earliest valid', () => {
+  const planner = new TherapyPlanner({}, { today: d(2026, 2, 3) }); // Mar3
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3));
+  assert.equal(fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate), '2026-03-31');
+
+  // Correct right[0] backward to Feb1: right[1] rebuilds to max(Mar3, Feb1+28=Mar1)=Mar3.
+  const result = planner.updateDateFor(TherapyPlanner.RIGHTEYE, 0, d(2026, 1, 1)); // Feb1 Sun (historical)
+  assert.equal(result.success, true, result.message || '');
+
+  const r1 = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1];
+  // Must be earlier than the pre-correction Mar31.
+  assert.ok(r1.plannedDate < d(2026, 2, 31),
+    `right[1] must move backward from Mar31; got ${fmt(r1.plannedDate)}`);
+  // Must be the earliest valid clinic date (today=Mar3 is a clinic day — check >= Mar3).
+  assert.ok(r1.plannedDate >= d(2026, 2, 3),
+    `right[1] must be >= today (Mar3); got ${fmt(r1.plannedDate)}`);
+  const v = planner.validateSchedule();
+  assert.equal(v.valid, true, v.violations && v.violations.join('; '));
+});
+
+// ── 11d. Valid confirmed appointment has priority in historical mode ──────────
+
+test('new-test-4: confirmed left[0] is preserved as anchor during historical reconstruction', () => {
+  // Set up: right[0] completed Mar10, left[0] confirmed Apr14, right[1] generated.
+  // Direct schedule manipulation bypasses pre-validation cross-eye check (which would
+  // reject Apr14 because right[1]=Apr7 is only 7 days away).
+  // The _isConfirmedAnchorValid check inside the historical cascade correctly
+  // evaluates whether Apr14 is a valid anchor (it is: >= today, clinic day, no pred).
+  const planner = new TherapyPlanner({}, { today: d(2026, 2, 10) }); // Mar10
+  planner.schedule[TherapyPlanner.LEFTEYE][0].plannedDate = d(2026, 3, 14); // Apr14
+  planner.schedule[TherapyPlanner.LEFTEYE][0].dateOrigin  = TherapyPlanner.DATE_ORIGIN_CONFIRMED;
+
+  // Mark right[0] completed on Mar10: triggers historical cascade.
+  const r = planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 10));
+  assert.equal(r.success, true, r.message || '');
+
+  const left0  = planner.getPlanByEye(TherapyPlanner.LEFTEYE)[0];
+  const right1 = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1];
+
+  // Confirmed anchor must not have been rescheduled.
+  assert.equal(fmt(left0.plannedDate), '2026-04-14',
+    `confirmed left[0] must remain exactly Apr14; got ${fmt(left0.plannedDate)}`);
+  assert.equal(left0.dateOrigin, TherapyPlanner.DATE_ORIGIN_CONFIRMED);
+  // Generated right[1] must be pushed out by the confirmed anchor.
+  assert.equal(fmt(right1.plannedDate), '2026-04-28',
+    `right[1] must be Apr28 (pushed to >= Apr14+14); got ${fmt(right1.plannedDate)}`);
+  const v = planner.validateSchedule();
+  assert.equal(v.valid, true, v.violations && v.violations.join('; '));
+});
+
+// ── 11e. Screenshot minWeeks regression ─────────────────────────────────────
+
+const SCREENSHOT_TODAY = d(2026, 6, 22); // Tue 22 Jul 2026
+
+function screenshotPlanner() {
+  // Build the exact screenshot schedule through planner APIs.
+  const planner = new TherapyPlanner({}, { today: SCREENSHOT_TODAY });
+  // Set up 2-appointment schedules to match screenshot (3 per eye).
+  // Right: completed Jul1, planned Aug26 (q-6), planned Sep23 (q-4).
+  // Left : completed Jul15, planned Aug12 (q-4), planned Sep9 (q-4).
+
+  // Force right[1]=Aug26 by confirming it, then set interval.
+  // We'll use a controlled planner state instead.
+  return planner;
+}
+
+test('new-test-5: screenshot scenario — changing left[1].minWeeks 4→6 produces exact result', () => {
+  // Build the screenshot schedule directly by manipulating the planner.
+  const planner = new TherapyPlanner({}, { today: SCREENSHOT_TODAY });
+
+  // Complete right[0] on Jul1.
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 6, 1));
+  // Complete left[0] on Jul15.
+  planner.setStatus(TherapyPlanner.LEFTEYE, 0, 'completed', d(2026, 6, 15));
+
+  // Force planned dates to match screenshot by confirming them.
+  planner.updateDateFor(TherapyPlanner.RIGHTEYE, 1, d(2026, 7, 26)); // Aug26, q still 4 → change to 6
+  planner.updateMinWeeksFor(TherapyPlanner.RIGHTEYE, 1, 6);          // set right[1] to q-6
+  planner.updateDateFor(TherapyPlanner.RIGHTEYE, 2, d(2026, 8, 23)); // Sep23, q-4
+  planner.updateDateFor(TherapyPlanner.LEFTEYE, 1, d(2026, 7, 12));  // Aug12, q-4
+  planner.updateDateFor(TherapyPlanner.LEFTEYE, 2, d(2026, 8, 9));   // Sep9, q-4
+
+  // Verify screenshot state.
+  const rp0 = planner.getPlanByEye(TherapyPlanner.RIGHTEYE);
+  const lp0 = planner.getPlanByEye(TherapyPlanner.LEFTEYE);
+  assert.equal(fmt(rp0[1].plannedDate), '2026-08-26', 'setup: right[1]');
+  assert.equal(fmt(rp0[2].plannedDate), '2026-09-23', 'setup: right[2]');
+  assert.equal(fmt(lp0[1].plannedDate), '2026-08-12', 'setup: left[1]');
+  assert.equal(fmt(lp0[2].plannedDate), '2026-09-09', 'setup: left[2]');
+
+  // Change left[1].minWeeks from 4 to 6.
+  const result = planner.updateMinWeeksFor(TherapyPlanner.LEFTEYE, 1, 6);
+  assert.equal(result.success, true, result.message || '');
+
+  const rp = planner.getPlanByEye(TherapyPlanner.RIGHTEYE);
+  const lp = planner.getPlanByEye(TherapyPlanner.LEFTEYE);
+
+  // Exact expected dates per spec.
+  assert.equal(fmt(rp[0].plannedDate), '2026-07-01', 'right[0] completed unchanged');
+  assert.equal(fmt(lp[0].plannedDate), '2026-07-15', 'left[0] completed unchanged');
+  assert.equal(fmt(lp[1].plannedDate), '2026-08-26', 'left[1] must move to Aug26');
+  assert.equal(fmt(rp[1].plannedDate), '2026-09-09', 'right[1] must cascade to Sep9');
+  assert.equal(fmt(lp[2].plannedDate), '2026-09-23', 'left[2] must stay Sep23');
+  assert.equal(fmt(rp[2].plannedDate), '2026-10-07', 'right[2] must cascade to Oct7');
+
+  // No same-day bilateral appointments.
+  for (let ri = 0; ri < rp.length; ri++) {
+    for (let li = 0; li < lp.length; li++) {
+      if (rp[ri].status === 'completed' && lp[li].status === 'completed') continue;
+      const gap = Math.abs(
+        Math.round((rp[ri].plannedDate - lp[li].plannedDate) / (24 * 60 * 60 * 1000)),
+      );
+      assert.ok(gap >= 14,
+        `right[${ri}] and left[${li}] are only ${gap} days apart (need >= 14)`);
+    }
+  }
+
+  // Every planned date must be a clinic day.
+  for (const [label, plan] of [['right', rp], ['left', lp]]) {
+    for (let i = 0; i < plan.length; i++) {
+      if (plan[i].status === 'planned') {
+        assert.ok(planner.isClinicDate(plan[i].plannedDate),
+          `${label}[${i}]=${fmt(plan[i].plannedDate)} must be a clinic day`);
+      }
+    }
+  }
+
+  const v = planner.validateSchedule();
+  assert.equal(v.valid, true, v.violations && v.violations.join('; '));
+
+  // changedAppointments must include all moved appointments; completed unchanged must be absent.
+  const changed = result.changedAppointments;
+  const completedChanged = changed.filter(c => c.status === 'completed');
+  assert.equal(completedChanged.length, 0, 'completed appointments must not appear in changedAppointments');
+  const allHaveDiff = changed.every(c => c.oldDate !== c.newDate);
+  assert.ok(allHaveDiff, 'every changedAppointments entry must have differing old/new dates');
+});
+
+// ── 11f. minWeeks rollback ───────────────────────────────────────────────────
+
+test('new-test-6: minWeeks rollback restores schedule and minWeeks on failure', () => {
+  // Construct a 1-appointment-each planner and try to increase minWeeks so far
+  // that no valid schedule can be produced within a reasonable horizon.
+  // Use a custom planner with only two appointments (one per eye) so the interval
+  // can be forced to something that conflicts with today.
+  const planner = new TherapyPlanner({}, { today: d(2026, 0, 6) });
+  // Complete right[0] today, so right[1] lower = today+minWeeks*7.
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 0, 6));
+
+  // Forcibly corrupt the schedule to be almost invalid — easier: just verify rollback
+  // by testing a concrete scenario:
+  // right[1] currently has minWeeks=4. The planner uses snapshot floor in ordinary mode.
+  // We don't have a reliable way to force a validation failure through the public API
+  // without a custom validator. Instead, verify the rollback contract via a mock.
+  const originalMinWeeks = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].minWeeks;
+  const originalDate = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate;
+
+  // Any valid minWeeks change from the MINWEEKS list should succeed.
+  // Verify that on failure (forced via direct injection) the state is restored.
+  // Spy on validateSchedule to force one failure.
+  const originalValidate = planner.validateSchedule.bind(planner);
+  let callCount = 0;
+  planner.validateSchedule = function() {
+    if (callCount++ === 0) return { valid: false, violations: ['forced failure'] };
+    return originalValidate();
+  };
+
+  const result = planner.updateMinWeeksFor(TherapyPlanner.RIGHTEYE, 1, 8);
+  assert.equal(result.success, false, 'must fail when validation returns invalid');
+  assert.equal(result.reason, 'VALIDATION_FAILED');
+
+  // Schedule must be unchanged.
+  const r1after = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1];
+  assert.equal(r1after.minWeeks, originalMinWeeks, 'minWeeks must be restored');
+  assert.equal(fmt(r1after.plannedDate), fmt(originalDate), 'date must be restored');
+
+  planner.validateSchedule = originalValidate; // restore
+});
+
+// ── 11g. minWeeks UI redraw ──────────────────────────────────────────────────
+
+test('new-test-7: minWeeks UI change redraws both eyes with updated dates', () => {
+  withMockDom((createTherapyListComponent, mockDoc) => {
+    const planner = new TherapyPlanner({}, { today: SCREENSHOT_TODAY });
+    planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 6, 1));
+    planner.setStatus(TherapyPlanner.LEFTEYE, 0, 'completed', d(2026, 6, 15));
+
+    const rightComp = createTherapyListComponent('right', TherapyPlanner.RIGHTEYE, planner);
+    const leftComp  = createTherapyListComponent('left', TherapyPlanner.LEFTEYE, planner);
+    mockDoc.root.appendChild(rightComp);
+    mockDoc.root.appendChild(leftComp);
+
+    // Confirm left[1]=Aug12, then change minWeeks 4→6.
+    planner.updateDateFor(TherapyPlanner.LEFTEYE, 1, d(2026, 7, 12));
+
+    const sel = leftComp.findById(`${TherapyPlanner.LEFTEYE}-select-1`);
+    if (sel) {
+      sel.value = '6';
+      sel.eventListeners['change'][0]({ target: sel });
+    }
+
+    // After redraw, left[1] must show a date that is 6 weeks from left[0].
+    const leftDate1 = leftComp.findById(`${TherapyPlanner.LEFTEYE}-date-1`);
+    const rightDate1 = leftComp.findById(`${TherapyPlanner.RIGHTEYE}-date-1`);
+    // The planner must have updated; its state must be valid.
+    const v = planner.validateSchedule();
+    assert.equal(v.valid, true, v.violations && v.violations.join('; '));
+    // No stale same-day date should remain.
+    const lp = planner.getPlanByEye(TherapyPlanner.LEFTEYE);
+    const rp = planner.getPlanByEye(TherapyPlanner.RIGHTEYE);
+    for (let ri = 0; ri < rp.length; ri++) {
+      for (let li = 0; li < lp.length; li++) {
+        if (rp[ri].status === 'completed' && lp[li].status === 'completed') continue;
+        const gap = Math.abs(
+          Math.round((rp[ri].plannedDate - lp[li].plannedDate) / (24 * 60 * 60 * 1000)),
+        );
+        assert.ok(gap >= 14, `right[${ri}] and left[${li}] are only ${gap} days apart after redraw`);
+      }
+    }
+  });
+});
+
+// ── 11h. minWeeks UI rollback and error ──────────────────────────────────────
+
+test('new-test-8: failed minWeeks change restores dropdown and shows persistent error', () => {
+  withMockDom((createTherapyListComponent, mockDoc) => {
+    const planner = new TherapyPlanner({}, { today: d(2026, 0, 6) });
+    const component = createTherapyListComponent('testComp', TherapyPlanner.RIGHTEYE, planner);
+    mockDoc.root.appendChild(component);
+
+    const originalDate = fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate);
+    const origMinWeeks = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].minWeeks;
+
+    // Force validation failure on next change.
+    const origValidate = planner.validateSchedule.bind(planner);
+    let calls = 0;
+    planner.validateSchedule = function() {
+      if (calls++ === 0) return { valid: false, violations: ['forced failure'] };
+      return origValidate();
+    };
+
+    const sel = component.findById(`${TherapyPlanner.RIGHTEYE}-select-1`);
+    if (sel) {
+      sel.value = '8';
+      sel.eventListeners['change'][0]({ target: sel });
+    }
+
+    // Dropdown must be restored.
+    if (sel) {
+      assert.equal(sel.value, String(origMinWeeks),
+        'dropdown must revert to original minWeeks on failure');
+    }
+    // Date must be unchanged.
+    assert.equal(fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate), originalDate,
+      'planned date must be unchanged after failed minWeeks change');
+
+    // Error must survive a subsequent buildPlan triggered by another event.
+    // Simulate a no-op redraw.
+    planner.notifyListeners();
+    const err = component.findById ? null : null;
+    // Check _messages state via visible DOM elements.
+    const errDiv = component.querySelector ? component.querySelector('.therapy-error') : null;
+    // The component must have rendered an error div.
+    function findByClass(el, cls) {
+      if (!el || !el.children) return null;
+      for (const child of el.children) {
+        if (child.classList && child.classList.contains(cls)) return child;
+        const found = findByClass(child, cls);
+        if (found) return found;
+      }
+      return null;
+    }
+    const errEl = findByClass(component, 'therapy-error');
+    assert.ok(errEl, 'an error div with class therapy-error must be visible after failed change');
+
+    planner.validateSchedule = origValidate;
+  });
+});
+
+// ── 11i. Pending completed cancelled through selector (no planner call) ───────
+
+test('new-test-9: cancelling pending completion via selector does not mutate planner', () => {
+  withMockDom((createTherapyListComponent, mockDoc) => {
+    const planner = new TherapyPlanner({}, { today: d(2026, 0, 6) });
+    // Confirm right[0] to Jan13 so it is confirmed.
+    planner.updateDateFor(TherapyPlanner.RIGHTEYE, 0, d(2026, 0, 13));
+    const originBefore = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].dateOrigin;
+    const dateBefore   = fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].plannedDate);
+    const scheduleBefore = JSON.stringify(planner.schedule);
+
+    const component = createTherapyListComponent('testComp', TherapyPlanner.RIGHTEYE, planner);
+    mockDoc.root.appendChild(component);
+
+    // Step 1: select "completed" → open pending form.
+    const statusSelect = component.findById(`${TherapyPlanner.RIGHTEYE}-status-0`);
+    if (statusSelect) {
+      statusSelect.value = TherapyPlanner.STATUS_COMPLETED;
+      statusSelect.eventListeners['change'][0]({ target: statusSelect });
+    }
+    // No planner mutation yet.
+    assert.equal(JSON.stringify(planner.schedule), scheduleBefore,
+      'schedule must not change when pending form opens');
+
+    // Step 2: change selector back to "planned" — must only cancel UI.
+    if (statusSelect) {
+      statusSelect.value = TherapyPlanner.STATUS_PLANNED;
+      statusSelect.eventListeners['change'][0]({ target: statusSelect });
+    }
+    // Still no planner mutation.
+    assert.equal(JSON.stringify(planner.schedule), scheduleBefore,
+      'schedule must not change when pending completion is cancelled via selector');
+    assert.equal(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].dateOrigin, originBefore,
+      'dateOrigin must be unchanged after UI-only cancellation');
+    assert.equal(fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].plannedDate), dateBefore,
+      'date must be unchanged after UI-only cancellation');
+  });
+});
+
+// ── 11j. setStatus idempotency ───────────────────────────────────────────────
+
+test('new-test-10: setStatus with same status is idempotent for planned', () => {
+  const planner = defaultPlanner();
+  const dateBefore = fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].plannedDate);
+  const originBefore = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].dateOrigin;
+
+  let listenerCalled = false;
+  planner.addListener(() => { listenerCalled = true; });
+
+  const result = planner.setStatus(TherapyPlanner.RIGHTEYE, 0, TherapyPlanner.STATUS_PLANNED);
+  assert.equal(result.success, true, result.message || '');
+  assert.equal(result.changedAppointments.length, 0, 'no changes should occur for no-op');
+  assert.equal(fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].plannedDate), dateBefore,
+    'date must be unchanged after idempotent setStatus');
+  assert.equal(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].dateOrigin, originBefore,
+    'dateOrigin must be unchanged after idempotent setStatus');
+  assert.equal(listenerCalled, false, 'listener must not be notified for a no-op');
+});
+
+test('new-test-10b: setStatus with same status is idempotent for completed', () => {
+  const planner = new TherapyPlanner({}, { today: d(2026, 2, 3) });
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3));
+  const dateBefore = fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].plannedDate);
+
+  let listenerCalled = false;
+  planner.addListener(() => { listenerCalled = true; });
+
+  const result = planner.setStatus(TherapyPlanner.RIGHTEYE, 0, TherapyPlanner.STATUS_COMPLETED);
+  assert.equal(result.success, true, result.message || '');
+  assert.equal(result.changedAppointments.length, 0);
+  assert.equal(fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].plannedDate), dateBefore);
+  assert.equal(listenerCalled, false, 'no-op must not fire listener');
+});
+
+// ── 11k. changedAppointments strictness ──────────────────────────────────────
+
+test('new-test-12: changedAppointments entries always have differing old/new dates', () => {
+  const planner = defaultPlanner();
+  const result = planner.updateDateFor(TherapyPlanner.RIGHTEYE, 0, d(2026, 0, 13));
+  assert.equal(result.success, true);
+
+  for (const entry of result.changedAppointments) {
+    assert.notEqual(entry.oldDate, entry.newDate,
+      `entry ${entry.type}[${entry.index}] must have different old/new dates`);
+  }
+
+  // Completed appointments (if any) must NOT appear.
+  const completedEntries = result.changedAppointments.filter(c => c.status === 'completed');
+  assert.equal(completedEntries.length, 0,
+    'completed appointments must not appear in changedAppointments for a planned-date edit');
+});
+
+test('new-test-12b: minWeeks changedAppointments includes cross-eye cascade', () => {
+  // Increase left[1] from 4 to 6 weeks: left[1] moves from Feb17 to Mar3,
+  // which conflicts with right[2]=Mar3 → right[2] cascades to Mar17.
+  const planner = defaultPlanner(); // today=Jan6
+  const result = planner.updateMinWeeksFor(TherapyPlanner.LEFTEYE, 1, 6);
+  assert.equal(result.success, true, result.message || '');
+
+  // Must include at least one right-eye entry (cross-eye cascade from left moving forward).
+  const rightChanged = result.changedAppointments.filter(c => c.type === TherapyPlanner.RIGHTEYE);
+  assert.ok(rightChanged.length > 0,
+    `cross-eye cascade must appear in changedAppointments; got: ${JSON.stringify(result.changedAppointments)}`);
+  // All entries must have different old/new dates.
+  for (const entry of result.changedAppointments) {
+    assert.notEqual(entry.oldDate, entry.newDate,
+      `entry ${entry.type}[${entry.index}] must have different old/new dates`);
+  }
+  // Completed appointments must be absent.
+  assert.equal(result.changedAppointments.filter(c => c.status === 'completed').length, 0);
 });

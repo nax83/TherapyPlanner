@@ -32,6 +32,23 @@
 const DATE_ORIGIN_GENERATED = 'generated';
 const DATE_ORIGIN_CONFIRMED  = 'confirmed';
 
+/**
+ * Cascade mode — controls the lower-bound policy for mutable appointments.
+ *
+ * ORDINARY  (normal planning)
+ *   Generated and confirmed appointments never move backward.
+ *   Lower bound = max(today, prev+interval, snapshotDate).
+ *
+ * HISTORICAL (historical entry / correction / completed→planned)
+ *   Valid confirmed planned appointments are treated as fixed anchors.
+ *   Generated appointments rebuild to max(today, prev+interval) and may
+ *   move backward.  Confirmed-but-invalid appointments rebuild to
+ *   max(today, prev+interval, confirmedDate) — never below their original
+ *   confirmed date.
+ */
+const CASCADE_MODE_ORDINARY  = 'ordinary';
+const CASCADE_MODE_HISTORICAL = 'historical';
+
 const DEFAULT_VALID_WEEKDAYS    = Object.freeze([2, 3, 4]);
 const DEFAULT_INTER_EYE_GAP_DAYS = 14;
 
@@ -128,7 +145,7 @@ class TherapyPlanner {
 
     const snapshot  = this._cloneSchedule();
     const fixedKeys = new Set([`${TherapyPlanner.RIGHTEYE}_0`, `${TherapyPlanner.LEFTEYE}_0`]);
-    this._cascade(snapshot, fixedKeys, this._allPlannedKeys(fixedKeys));
+    this._cascade(snapshot, fixedKeys, this._allPlannedKeys(fixedKeys), CASCADE_MODE_ORDINARY);
   }
 
   // ── static identifiers ──────────────────────────────────────────────────────
@@ -141,6 +158,8 @@ class TherapyPlanner {
   static get STATUS_COMPLETED()      { return 'completed'; }
   static get DATE_ORIGIN_GENERATED() { return DATE_ORIGIN_GENERATED; }
   static get DATE_ORIGIN_CONFIRMED() { return DATE_ORIGIN_CONFIRMED; }
+  static get CASCADE_MODE_ORDINARY()  { return CASCADE_MODE_ORDINARY; }
+  static get CASCADE_MODE_HISTORICAL(){ return CASCADE_MODE_HISTORICAL; }
 
   // ── private helpers ─────────────────────────────────────────────────────────
 
@@ -228,12 +247,51 @@ class TherapyPlanner {
   }
 
   /**
-   * Schedule one mutable planned appointment to its earliest valid date.
-   * Uses ONLY `finalized` keys for cross-eye validation — not future mutable ones.
-   * Confirmed dates never move backward (their confirmed date is included in lowerBound).
-   * Generated dates are rebuilt to max(today, prevSameEye + interval).
+   * Whether a confirmed planned appointment at (type, i) should be treated as a
+   * fixed anchor during historical reconstruction.
+   *
+   * An anchor is valid when its date is:
+   *  - on or after today;
+   *  - a clinic day;
+   *  - at least minWeeks × 7 days after the previous completed same-eye appointment
+   *    (only checked when the predecessor is completed and hence already fixed).
    */
-  _scheduleMutable(type, i, finalized) {
+  _isConfirmedAnchorValid(type, i) {
+    const appt = this.schedule[type][i];
+    if (!(appt.plannedDate instanceof Date)) return false;
+    const nd = normalizeDate(appt.plannedDate);
+    if (nd < normalizeDate(this.today)) return false;
+    if (!this.isClinicDate(nd)) return false;
+    if (i > 0) {
+      const prev = this.schedule[type][i - 1];
+      if (prev.status === TherapyPlanner.STATUS_COMPLETED && prev.plannedDate instanceof Date) {
+        const minGap = appt.minWeeks * 7;
+        if (calendarDayDifference(prev.plannedDate, nd) < minGap) return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Schedule one mutable planned appointment to its earliest valid date.
+   *
+   * @param {string}  type     Eye (RIGHTEYE | LEFTEYE).
+   * @param {number}  i        Index within the eye's plan.
+   * @param {Set}     finalized Keys that are already settled (fixed + completed).
+   * @param {string}  mode     CASCADE_MODE_ORDINARY | CASCADE_MODE_HISTORICAL.
+   * @param {object}  snapshot Pre-operation schedule clone (for snapshot floor).
+   *
+   * ORDINARY mode lower bound:
+   *   max(today, prev+interval, snapshotDate)
+   *   → appointments never move backward.
+   *
+   * HISTORICAL mode lower bound:
+   *   generated : max(today, prev+interval)          – may move backward
+   *   confirmed : max(today, prev+interval, confirmedDate) – never below confirmed date
+   *
+   * Cross-eye validation uses ONLY finalized other-eye appointments.
+   */
+  _scheduleMutable(type, i, finalized, mode, snapshot) {
     const plan    = this.schedule[type];
     const session = plan[i];
     const other   = this._otherEye(type);
@@ -251,10 +309,20 @@ class TherapyPlanner {
       session.earliestSameEyeDate = normalizeDate(this.today);
     }
 
-    // Confirmed dates never move backward
-    if (session.dateOrigin === DATE_ORIGIN_CONFIRMED && session.plannedDate instanceof Date) {
-      const floor = normalizeDate(session.plannedDate);
-      if (floor > lowerBound) lowerBound = floor;
+    if (mode === CASCADE_MODE_ORDINARY) {
+      // Ordinary: snapshot date is floor — appointments never move backward.
+      const snap = snapshot && snapshot[type] && snapshot[type][i];
+      if (snap && snap.plannedDate instanceof Date) {
+        const snapFloor = normalizeDate(snap.plannedDate);
+        if (snapFloor > lowerBound) lowerBound = snapFloor;
+      }
+    } else {
+      // Historical: confirmed appointments never move below their confirmed date;
+      // generated appointments may freely move backward (no snapshot floor).
+      if (session.dateOrigin === DATE_ORIGIN_CONFIRMED && session.plannedDate instanceof Date) {
+        const confirmedFloor = normalizeDate(session.plannedDate);
+        if (confirmedFloor > lowerBound) lowerBound = confirmedFloor;
+      }
     }
 
     // Cross-eye: only finalized other-eye appointments
@@ -272,11 +340,39 @@ class TherapyPlanner {
   /**
    * Deterministic cascade.
    *
+   * @param {object} snapshot   Pre-operation schedule clone (for snapshot floor in ordinary mode).
+   * @param {Set}    fixedKeys  Keys whose dates must not change.
+   * @param {Set}    mutableKeys Keys that the cascade may reschedule.
+   * @param {string} mode       CASCADE_MODE_ORDINARY | CASCADE_MODE_HISTORICAL.
+   *
+   * HISTORICAL mode additionally promotes valid confirmed planned appointments
+   * from mutableKeys into fixedKeys so that generated appointments are
+   * scheduled around them.
+   *
    * Mutable appointments are processed in stable chronological order
    * (by pre-operation snapshot date).  Tiebreak: right before left, lower
    * index first.  A same-eye predecessor must be finalised before its successor.
    */
-  _cascade(snapshot, fixedKeys, mutableKeys) {
+  _cascade(snapshot, fixedKeys, mutableKeys, mode) {
+    mode = mode || CASCADE_MODE_ORDINARY;
+
+    // In historical mode, promote valid confirmed planned appointments to fixed anchors
+    // so that generated appointments are scheduled around them.
+    if (mode === CASCADE_MODE_HISTORICAL) {
+      for (const key of [...mutableKeys]) {
+        const under = key.lastIndexOf('_');
+        const type  = key.slice(0, under);
+        const i     = parseInt(key.slice(under + 1), 10);
+        const appt  = this.schedule[type][i];
+        if (appt.status === TherapyPlanner.STATUS_PLANNED &&
+            appt.dateOrigin === DATE_ORIGIN_CONFIRMED &&
+            this._isConfirmedAnchorValid(type, i)) {
+          mutableKeys.delete(key);
+          fixedKeys.add(key);
+        }
+      }
+    }
+
     // Build sorted work list from snapshot dates
     const items = [];
     for (const key of mutableKeys) {
@@ -320,7 +416,7 @@ class TherapyPlanner {
       if (idx === -1) break; // no progress — should not happen
 
       const { type, i, key } = remaining.splice(idx, 1)[0];
-      this._scheduleMutable(type, i, finalized);
+      this._scheduleMutable(type, i, finalized, mode, snapshot);
       finalized.add(key);
     }
   }
@@ -421,7 +517,7 @@ class TherapyPlanner {
       // Historical cascade: all planned appointments are mutable
       const fixedKeys  = new Set();
       const mutableKeys = this._allPlannedKeys(fixedKeys);
-      this._cascade(snapshot, fixedKeys, mutableKeys);
+      this._cascade(snapshot, fixedKeys, mutableKeys, CASCADE_MODE_HISTORICAL);
 
       const v = this.validateSchedule();
       if (!v.valid) {
@@ -505,7 +601,7 @@ class TherapyPlanner {
     plan[index].plannedDate = nd;
     plan[index].dateOrigin  = DATE_ORIGIN_CONFIRMED;
 
-    this._cascade(snapshot, fixedKeys, mutableKeys);
+    this._cascade(snapshot, fixedKeys, mutableKeys, CASCADE_MODE_ORDINARY);
 
     const v = this.validateSchedule();
     if (!v.valid) {
@@ -549,11 +645,12 @@ class TherapyPlanner {
       }
     }
 
-    this._cascade(snapshot, fixedKeys, mutableKeys);
+    this._cascade(snapshot, fixedKeys, mutableKeys, CASCADE_MODE_ORDINARY);
 
     const v = this.validateSchedule();
     if (!v.valid) {
       this.schedule = snapshot;
+      plan[index].minWeeks = snapshot[type][index].minWeeks; // restore interval
       return { success: false, reason: 'VALIDATION_FAILED', message: v.violations.join('; ') };
     }
 
@@ -573,6 +670,11 @@ class TherapyPlanner {
     const plan = this.schedule[type];
     if (!plan || index < 0 || index >= plan.length) {
       return { success: false, reason: 'INVALID_INDEX', message: 'Invalid session index.' };
+    }
+
+    // Idempotent: requesting the same status already stored is a no-op.
+    if (newStatus === plan[index].status) {
+      return { success: true, changedAppointments: [], warnings: [] };
     }
 
     // ── → completed ───────────────────────────────────────────────────────────
@@ -616,7 +718,7 @@ class TherapyPlanner {
       // Historical cascade: all planned appointments mutable
       const fixedKeys  = new Set();
       const mutableKeys = this._allPlannedKeys(fixedKeys);
-      this._cascade(snapshot, fixedKeys, mutableKeys);
+      this._cascade(snapshot, fixedKeys, mutableKeys, CASCADE_MODE_HISTORICAL);
 
       const v = this.validateSchedule();
       if (!v.valid) {
@@ -646,7 +748,7 @@ class TherapyPlanner {
       // Historical cascade: all planned mutable
       const fixedKeys  = new Set();
       const mutableKeys = this._allPlannedKeys(fixedKeys);
-      this._cascade(snapshot, fixedKeys, mutableKeys);
+      this._cascade(snapshot, fixedKeys, mutableKeys, CASCADE_MODE_HISTORICAL);
 
       const v = this.validateSchedule();
       if (!v.valid) {
@@ -675,7 +777,7 @@ class TherapyPlanner {
     for (let i = 0; i < newIndex; i++) fixedKeys.add(`${type}_${i}`);
     for (let j = 0; j < this.schedule[otherEye].length; j++) fixedKeys.add(`${otherEye}_${j}`);
 
-    this._cascade(snapshot, fixedKeys, mutableKeys);
+    this._cascade(snapshot, fixedKeys, mutableKeys, CASCADE_MODE_ORDINARY);
 
     const v = this.validateSchedule();
     if (!v.valid) { this.schedule = snapshot; return false; }
