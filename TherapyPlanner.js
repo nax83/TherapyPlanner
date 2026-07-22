@@ -42,46 +42,23 @@ class TherapyPlanner {
       this.today = new Date();
       this.today.setHours(0, 0, 0, 0);
       this.daysToCheck = normalizeValidWeekdays(config && config.validAppointmentWeekdays);
-    
+
+      const rightEyeFirst = this.getNextValidDate(this.today);
+      const leftEyeFirst  = this.getNextValidDate(
+        new Date(rightEyeFirst.getTime() + TherapyPlanner.INTER_EYE_GAP_DAYS * 24 * 60 * 60 * 1000)
+      );
+
       this.newTherapyPlan = {
         [TherapyPlanner.RIGHTEYE] : [
-          {
-          "type": TherapyPlanner.RIGHTEYE,
-          "minWeeks": 4,
-          "minimumDate": this.today,
-          "plannedDate": this.today
-        },
-        {
-          "type": TherapyPlanner.RIGHTEYE,
-          "minWeeks": 4,
-          "minimumDate": '',
-          "plannedDate": ''
-        },
-        {
-          "type": TherapyPlanner.RIGHTEYE,
-          "minWeeks": 4,
-          "minimumDate": '',
-          "plannedDate": ''
-        }],
+          { "type": TherapyPlanner.RIGHTEYE, "minWeeks": 4, "minimumDate": rightEyeFirst, "plannedDate": rightEyeFirst },
+          { "type": TherapyPlanner.RIGHTEYE, "minWeeks": 4, "minimumDate": '', "plannedDate": '' },
+          { "type": TherapyPlanner.RIGHTEYE, "minWeeks": 4, "minimumDate": '', "plannedDate": '' }
+        ],
         [TherapyPlanner.LEFTEYE] : [
-          {
-          "type": TherapyPlanner.LEFTEYE,
-          "minWeeks": 4,
-          "minimumDate": this.today,
-          "plannedDate": this.today
-        },
-        {
-          "type": TherapyPlanner.LEFTEYE,
-          "minWeeks": 4,
-          "minimumDate": '',
-          "plannedDate": ''
-        },
-        {
-          "type": TherapyPlanner.LEFTEYE,
-          "minWeeks": 4,
-          "minimumDate": '',
-          "plannedDate": ''
-        }]
+          { "type": TherapyPlanner.LEFTEYE, "minWeeks": 4, "minimumDate": leftEyeFirst, "plannedDate": leftEyeFirst },
+          { "type": TherapyPlanner.LEFTEYE, "minWeeks": 4, "minimumDate": '', "plannedDate": '' },
+          { "type": TherapyPlanner.LEFTEYE, "minWeeks": 4, "minimumDate": '', "plannedDate": '' }
+        ]
       };
       this.updatePlan(TherapyPlanner.RIGHTEYE);
       this.updatePlan(TherapyPlanner.LEFTEYE);
@@ -178,6 +155,11 @@ class TherapyPlanner {
 
         const validDate = this.getNextValidDate(new Date(minDateMs));
         this.newTherapyPlan[type][i].minimumDate = validDate;
+        // clear plannedDate if it's now before the new minimum
+        const planned = this.newTherapyPlan[type][i].plannedDate;
+        if (planned instanceof Date && planned.getTime() < validDate.getTime()) {
+          this.newTherapyPlan[type][i].plannedDate = '';
+        }
       }
       return;
     }
@@ -208,7 +190,7 @@ class TherapyPlanner {
       if(index > 0 && index < this.newTherapyPlan[type].length){
         if(date instanceof Date){
           let therapy = this.newTherapyPlan[type][index];
-          if(date - therapy.minimumDate > 0 && this.isValidWorkingDays(date)){
+          if(date - therapy.minimumDate >= 0 && this.isValidWorkingDays(date)){
             therapy.plannedDate = date;
             this.newTherapyPlan[type][index] = therapy;
             this.updatePlan(type, index);

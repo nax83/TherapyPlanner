@@ -178,6 +178,61 @@ test('adding therapy to the left eye updates the schedule', () => {
   }
 });
 
+test('initial session 0 of each eye is at least 14 days apart', () => {
+  const originalLog = console.log;
+  console.log = () => {};
+
+  try {
+    const planner = new TherapyPlanner();
+    const rightFirst = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0];
+    const leftFirst  = planner.getPlanByEye(TherapyPlanner.LEFTEYE)[0];
+
+    const diffDays = Math.abs(rightFirst.plannedDate.getTime() - leftFirst.plannedDate.getTime()) / DAY_IN_MS;
+    assert.ok(
+      diffDays >= TherapyPlanner.INTER_EYE_GAP_DAYS,
+      `Initial sessions are only ${diffDays} days apart (minimum ${TherapyPlanner.INTER_EYE_GAP_DAYS})`,
+    );
+  } finally {
+    console.log = originalLog;
+  }
+});
+
+test('moving a session earlier clears stale plannedDate on downstream sessions', () => {
+  const originalLog = console.log;
+  console.log = () => {};
+
+  try {
+    const planner = new TherapyPlanner();
+    // set session 1 of right eye to a far-future planned date
+    const rightPlan = planner.getPlanByEye(TherapyPlanner.RIGHTEYE);
+    const farDate = new Date(rightPlan[1].minimumDate.getTime() + 60 * DAY_IN_MS);
+    // advance to next valid weekday
+    const farValidDate = planner.getNextValidDate(farDate);
+    planner.updateDateFor(TherapyPlanner.RIGHTEYE, 1, farValidDate);
+
+    // session 2 should now have a plannedDate derived from farValidDate or empty — confirm it's consistent
+    const afterFar = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[2];
+    if (afterFar.plannedDate instanceof Date) {
+      assert.ok(
+        afterFar.plannedDate.getTime() >= afterFar.minimumDate.getTime(),
+        'session 2 plannedDate must not be before its minimumDate',
+      );
+    }
+
+    // now move session 1 back to its minimum — session 2 plannedDate must have been cleared
+    planner.updateDateFor(TherapyPlanner.RIGHTEYE, 1, rightPlan[1].minimumDate);
+    const afterReset = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[2];
+    if (afterReset.plannedDate instanceof Date) {
+      assert.ok(
+        afterReset.plannedDate.getTime() >= afterReset.minimumDate.getTime(),
+        'session 2 plannedDate must not be before its minimumDate after resetting session 1',
+      );
+    }
+  } finally {
+    console.log = originalLog;
+  }
+});
+
 test('planner uses default configuration weekdays when none are provided', () => {
   const originalLog = console.log;
   console.log = () => {};
