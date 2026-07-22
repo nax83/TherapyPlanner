@@ -220,6 +220,39 @@ test('planner accepts custom configuration for valid weekdays', () => {
   }
 });
 
+test('inter-eye gap: session on one eye must be at least 14 days after any session on the other eye', () => {
+  const originalLog = console.log;
+  console.log = () => {};
+
+  try {
+    const planner = new TherapyPlanner();
+
+    // anchor both eyes on the same known date
+    const anchor = new Date(Date.UTC(2025, 0, 7)); // Tuesday
+    planner.updateDateFor(TherapyPlanner.RIGHTEYE, 0, anchor);
+    planner.updateDateFor(TherapyPlanner.LEFTEYE, 0, anchor);
+
+    const rightPlan = planner.getPlanByEye(TherapyPlanner.RIGHTEYE);
+    const leftPlan  = planner.getPlanByEye(TherapyPlanner.LEFTEYE);
+
+    // every pair of sessions (one from each eye) must be at least 14 days apart
+    for (const r of rightPlan) {
+      for (const l of leftPlan) {
+        const rDate = r.plannedDate instanceof Date ? r.plannedDate : r.minimumDate;
+        const lDate = l.plannedDate instanceof Date ? l.plannedDate : l.minimumDate;
+        if (!(rDate instanceof Date) || !(lDate instanceof Date)) continue;
+        const diffDays = Math.abs(rDate.getTime() - lDate.getTime()) / DAY_IN_MS;
+        assert.ok(
+          diffDays === 0 || diffDays >= TherapyPlanner.INTER_EYE_GAP_DAYS,
+          `Right session ${rDate.toISOString()} and left session ${lDate.toISOString()} are only ${diffDays} days apart (minimum ${TherapyPlanner.INTER_EYE_GAP_DAYS})`,
+        );
+      }
+    }
+  } finally {
+    console.log = originalLog;
+  }
+});
+
 test('date picker uses the earliest available date as the minimum selectable value', () => {
   const originalLog = console.log;
   console.log = () => {};

@@ -83,6 +83,7 @@ class TherapyPlanner {
           "plannedDate": ''
         }]
       };
+      this.updatePlan(TherapyPlanner.RIGHTEYE);
       this.updatePlan(TherapyPlanner.LEFTEYE);
       this.updatePlan(TherapyPlanner.RIGHTEYE);
     }
@@ -97,6 +98,10 @@ class TherapyPlanner {
 
     static get MINWEEKS() {
         return [4, 6, 8, 10, 12, 14, 16];
+    }
+
+    static get INTER_EYE_GAP_DAYS() {
+        return 14;
     }
 
     static get DEFAULT_VALID_WEEKDAYS() {
@@ -137,33 +142,52 @@ class TherapyPlanner {
         console.log("Invalid start index.");
         return;
       }
-      
+
+      const otherType = type === TherapyPlanner.RIGHTEYE ? TherapyPlanner.LEFTEYE : TherapyPlanner.RIGHTEYE;
+      const interEyeMs = TherapyPlanner.INTER_EYE_GAP_DAYS * 24 * 60 * 60 * 1000;
+
       for (let i = index; i < this.newTherapyPlan[type].length; i++) {
         if(i === 0){
-          //first appointment is free
-          console.log('first appointment');
           continue;
         }
         let previousSameEye = this.newTherapyPlan[type][i-1];
         let current = this.newTherapyPlan[type][i];
-        
-        let minDays = this.weeksToDays(current.minWeeks);
-        let minSameEyeDate = 0;
-  
-        const previousSameEyeDate = Math.max(previousSameEye.minimumDate, previousSameEye.plannedDate);
-        minDays = this.weeksToDays(current.minWeeks);
-        minSameEyeDate = (new Date (previousSameEyeDate)).getTime()+minDays * 24 * 60 * 60 * 1000;
 
-        let currentDate =new Date(minSameEyeDate);
-        const validDate = this.getNextValidDate(currentDate);
+        const previousSameEyeDate = Math.max(previousSameEye.minimumDate, previousSameEye.plannedDate);
+        const minDays = this.weeksToDays(current.minWeeks);
+        let minDateMs = (new Date(previousSameEyeDate)).getTime() + minDays * 24 * 60 * 60 * 1000;
+
+        // enforce inter-eye gap: this session must be at least INTER_EYE_GAP_DAYS after
+        // every session of the other eye
+        const otherPlan = this.newTherapyPlan[otherType];
+        for (let j = 0; j < otherPlan.length; j++) {
+          const otherSession = otherPlan[j];
+          const otherDate = Math.max(
+            otherSession.minimumDate instanceof Date ? otherSession.minimumDate.getTime() : 0,
+            otherSession.plannedDate instanceof Date ? otherSession.plannedDate.getTime() : 0,
+          );
+          if (otherDate > 0) {
+            const gapAfter = otherDate + interEyeMs;
+            const gapBefore = otherDate - interEyeMs;
+            // current session must not fall within [otherDate - gap, otherDate + gap)
+            if (minDateMs > gapBefore && minDateMs < gapAfter) {
+              minDateMs = gapAfter;
+            }
+          }
+        }
+
+        const validDate = this.getNextValidDate(new Date(minDateMs));
         this.newTherapyPlan[type][i].minimumDate = validDate;
       }
-      console.log(this.newTherapyPlan);
       return;
     }
 
     weeksToDays(weeks) {
       return weeks * 7 + 1;
+    }
+
+    _otherEye(type) {
+      return type === TherapyPlanner.RIGHTEYE ? TherapyPlanner.LEFTEYE : TherapyPlanner.RIGHTEYE;
     }
 
     updateMinWeeksFor(type, index, minWeeks){
@@ -173,6 +197,7 @@ class TherapyPlanner {
           therapy.minWeeks = minWeeks;
           this.newTherapyPlan[type][index]= therapy;
           this.updatePlan(type);
+          this.updatePlan(this._otherEye(type));
           this.notifyListeners();
         }
       }
@@ -187,6 +212,7 @@ class TherapyPlanner {
             therapy.plannedDate = date;
             this.newTherapyPlan[type][index] = therapy;
             this.updatePlan(type, index);
+            this.updatePlan(this._otherEye(type));
           }
         }
       }
@@ -197,11 +223,13 @@ class TherapyPlanner {
           therapy.minimumDate = date;
           this.newTherapyPlan[type][index] = therapy;
           this.updatePlan(type);
+          this.updatePlan(this._otherEye(type));
         }
       }
       this.notifyListeners();
       return;
     }
+
     addTherapy(type){
       let therapy = {
         "type": type,
@@ -211,13 +239,16 @@ class TherapyPlanner {
       };
       this.newTherapyPlan[type].push(therapy);
       this.updatePlan(type);
+      this.updatePlan(this._otherEye(type));
       this.notifyListeners();
     }
+
     removeTherapy(type){
       let therapy = this.newTherapyPlan[type].pop();
       if(therapy)
       {
         this.updatePlan(type);
+        this.updatePlan(this._otherEye(type));
         this.notifyListeners();
       }
     }
