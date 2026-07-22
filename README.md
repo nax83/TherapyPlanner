@@ -115,14 +115,30 @@ Used for:
 
 Rules:
 - Completed appointments never move.
-- **Valid confirmed planned appointments are treated as fixed anchors** — generated appointments are scheduled around them.
+- **Valid confirmed planned appointments are treated as fixed anchors** — see eligibility rules above. Generated appointments are scheduled around them.
 - Generated appointments may move backward (rebuild to earliest valid date).
 - Confirmed-but-invalid appointments may move forward but never backward below their confirmed date.
 
-A confirmed planned appointment is a valid anchor when its date is:
-- on or after today;
-- a clinic day;
-- at least `minWeeks × 7` days after the previous completed same-eye appointment.
+A confirmed planned appointment is eligible to become a fixed anchor during historical reconstruction when **all** of the following hold:
+
+1. Its date is a valid normalized calendar date.
+2. Its date is today or later.
+3. It falls on a configured clinic day.
+4. It respects its same-eye ordering and interval.
+   - If the same-eye predecessor is **immutable** (completed or already-accepted anchor): the interval must be met directly.
+   - If the same-eye predecessor is **mutable** (generated): the earliest theoretically schedulable predecessor date must be at most `confirmedDate − minWeeks × 7`.
+5. It is at least `interEyeGapDays` (14) calendar days from **every** immutable opposite-eye appointment (completed or already-accepted confirmed anchors).
+6. Fixing it does not make an already-accepted same-eye confirmed sequence infeasible.
+7. It can coexist with all previously accepted confirmed anchors.
+
+**Confirmed anchors are conditional — not always frozen.** A confirmed appointment that fails any of these checks remains mutable. When mutable:
+- It may move forward.
+- It never moves backward below its original confirmed date.
+- Its `dateOrigin` remains `confirmed`.
+
+**Confirmed-anchor selection is deterministic** — candidates are sorted by date, right-before-left, lower index first, and each accepted anchor is added to the immutable set before the next candidate is evaluated.
+
+**Post-hoc demotion (Phase 5)**: After scheduling a mutable predecessor, if the same-eye successor was frozen as a confirmed anchor but the predecessor was scheduled too late to satisfy the interval, the successor is demoted from fixed status and rescheduled forward. It never moves backward; `dateOrigin` remains `confirmed`.
 
 Lower bound in historical mode:
 - Generated: `max(today, previousSameEye + minWeeks × 7)` — may move backward.
@@ -168,9 +184,60 @@ Every successful mutation from `updateDateFor`, `updateMinWeeksFor`, and `setSta
 }
 ```
 
-Only appointments whose date actually changed are included. Completed fixed appointments never appear.
+Only appointments whose date actually changed are included.
 
-## Transactional Rollback
+**Completed appointments**: An *unchanged* completed appointment is never included. A completed appointment explicitly corrected by the user **is** included because its effective date changed. In that case the entry has `status: "completed"`.
+
+Accepted confirmed anchors (those that remain exactly at their confirmed date) are not included unless they moved.
+
+## Global Validation (`validateSchedule`)
+
+`validateSchedule()` checks the full schedule against all invariants and returns `{ valid: true }` or `{ valid: false, violations: string[] }`.
+
+Checked invariants:
+- Valid statuses (`planned` | `completed`).
+- Completed-prefix ordering (no completed after planned).
+- All dates are valid `Date` objects.
+- No completed appointment after today.
+- No planned appointment before today.
+- Completed appointments appear in chronological order.
+- Planned appointments are on configured clinic days.
+- Same-eye minimum intervals between planned appointments.
+- Cross-eye `interEyeGapDays` gap between every planned-vs-any pair.
+- No same-day bilateral appointments.
+- **`dateOrigin` for every planned appointment must be exactly `"generated"` or `"confirmed"`** — a missing, null, or unknown origin is a violation.
+
+Completed appointments are exempt from the same-eye interval, cross-eye, and clinic-day checks (accepted as historical facts).
+
+## API Return Shape
+
+All three main mutation methods return a consistent result object.
+
+**Success:**
+
+```js
+{
+  success: true,
+  changedAppointments: [...],
+  warnings: []
+}
+```
+
+**Failure:**
+
+```js
+{
+  success: false,
+  reason: "SOME_REASON",
+  message: "Useful explanation",
+  changedAppointments: [],
+  warnings: []
+}
+```
+
+Common failure `reason` values: `INVALID_DATE`, `INVALID_INDEX`, `BEFORE_TODAY`, `COMPLETED_AFTER_TODAY`, `NOT_CLINIC_DAY`, `SAME_EYE_INTERVAL`, `INTER_EYE_GAP`, `CHRONOLOGICAL_ORDER`, `NOT_PREFIX`, `NOT_LAST_COMPLETED`, `INVALID_MINWEEKS`, `INVALID_STATUS`, `VALIDATION_FAILED`.
+
+
 
 Every mutation clones the schedule before applying changes. If global validation fails:
 
@@ -211,7 +278,7 @@ No mutation occurs, no listeners are notified.
 |---|---|
 | Language | Vanilla JavaScript (ES2015+, no transpilation) |
 | Styling | Bootstrap 5.3, Bootstrap Icons 1.5, normalize.css (CDN) |
-| Tests | Node.js built-in `node:test` + `assert/strict` (111 tests) |
+| Tests | Node.js built-in `node:test` + `assert/strict` (125 tests) |
 | Build | None — files served as-is |
 
 ## Project Structure

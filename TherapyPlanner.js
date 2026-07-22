@@ -247,28 +247,76 @@ class TherapyPlanner {
   }
 
   /**
-   * Whether a confirmed planned appointment at (type, i) should be treated as a
-   * fixed anchor during historical reconstruction.
-   *
-   * An anchor is valid when its date is:
-   *  - on or after today;
-   *  - a clinic day;
-   *  - at least minWeeks × 7 days after the previous completed same-eye appointment
-   *    (only checked when the predecessor is completed and hence already fixed).
+   * Compute the earliest calendar date that appointment (type, index) could
+   * possibly receive, walking the same-eye chain forward from the first
+   * immutable anchor found before `index`.
+   * Used to test whether a confirmed appointment's same-eye predecessor chain
+   * is feasible.
    */
-  _isConfirmedAnchorValid(type, i) {
-    const appt = this.schedule[type][i];
-    if (!(appt.plannedDate instanceof Date)) return false;
-    const nd = normalizeDate(appt.plannedDate);
-    if (nd < normalizeDate(this.today)) return false;
-    if (!this.isClinicDate(nd)) return false;
-    if (i > 0) {
-      const prev = this.schedule[type][i - 1];
-      if (prev.status === TherapyPlanner.STATUS_COMPLETED && prev.plannedDate instanceof Date) {
-        const minGap = appt.minWeeks * 7;
-        if (calendarDayDifference(prev.plannedDate, nd) < minGap) return false;
+  _earliestPossibleDate(type, index, immutableKeys) {
+    const plan = this.schedule[type];
+    let floor  = normalizeDate(this.today);
+    for (let i = 0; i <= index; i++) {
+      const key = `${type}_${i}`;
+      if (immutableKeys.has(key) && plan[i].plannedDate instanceof Date) {
+        floor = normalizeDate(plan[i].plannedDate);
+      } else if (i > 0) {
+        floor = normalizeDate(addCalendarDays(floor, plan[i].minWeeks * 7));
       }
     }
+    return floor;
+  }
+
+  /**
+   * Test whether the confirmed planned appointment at (type, i) is eligible
+   * to be frozen as a fixed anchor during historical reconstruction.
+   *
+   * @param {string} type
+   * @param {number} i
+   * @param {Set}    immutableKeys  Keys of completed + already-accepted anchors.
+   *
+   * Checks:
+   *  1. Valid date >= today.
+   *  2. Falls on a clinic day.
+   *  3. Respects same-eye interval from an immutable predecessor.
+   *  4. Feasibility: if the same-eye predecessor is mutable, verifies that
+   *     it can be scheduled before this appointment with the required interval.
+   *  5. At least interEyeGapDays from every immutable opposite-eye appointment.
+   */
+  _isConfirmedAnchorEligible(type, i, immutableKeys) {
+    const plan = this.schedule[type];
+    const appt = plan[i];
+    if (!(appt.plannedDate instanceof Date)) return false;
+    const nd = normalizeDate(appt.plannedDate);
+
+    if (nd < normalizeDate(this.today)) return false;
+    if (!this.isClinicDate(nd)) return false;
+
+    if (i > 0) {
+      const prevKey = `${type}_${i - 1}`;
+      const prev    = plan[i - 1];
+      if (immutableKeys.has(prevKey)) {
+        // Immutable predecessor: check ordering + interval directly.
+        if (!(prev.plannedDate instanceof Date)) return false;
+        const diff = calendarDayDifference(prev.plannedDate, nd);
+        if (diff <= 0 || diff < appt.minWeeks * 7) return false;
+      } else {
+        // Mutable predecessor: check that it can be scheduled early enough.
+        const earliestPred  = this._earliestPossibleDate(type, i - 1, immutableKeys);
+        const latestValidMs = nd.getTime() - appt.minWeeks * 7 * 24 * 60 * 60 * 1000;
+        if (earliestPred.getTime() > latestValidMs) return false;
+      }
+    }
+
+    // Cross-eye: must be at least interEyeGapDays from every immutable other-eye appointment.
+    const other = this._otherEye(type);
+    for (let j = 0; j < this.schedule[other].length; j++) {
+      if (!immutableKeys.has(`${other}_${j}`)) continue;
+      const oe = this.schedule[other][j];
+      if (!(oe.plannedDate instanceof Date)) continue;
+      if (Math.abs(calendarDayDifference(nd, oe.plannedDate)) < this.interEyeGapDays) return false;
+    }
+
     return true;
   }
 
@@ -356,22 +404,54 @@ class TherapyPlanner {
   _cascade(snapshot, fixedKeys, mutableKeys, mode) {
     mode = mode || CASCADE_MODE_ORDINARY;
 
-    // In historical mode, promote valid confirmed planned appointments to fixed anchors
-    // so that generated appointments are scheduled around them.
+    // ── Historical mode: 3-phase confirmed-anchor selection ───────────────────
     if (mode === CASCADE_MODE_HISTORICAL) {
-      for (const key of [...mutableKeys]) {
-        const under = key.lastIndexOf('_');
-        const type  = key.slice(0, under);
-        const i     = parseInt(key.slice(under + 1), 10);
-        const appt  = this.schedule[type][i];
-        if (appt.status === TherapyPlanner.STATUS_PLANNED &&
-            appt.dateOrigin === DATE_ORIGIN_CONFIRMED &&
-            this._isConfirmedAnchorValid(type, i)) {
-          mutableKeys.delete(key);
-          fixedKeys.add(key);
+      // Phase 1: immutable base = completed appointments + operation-fixed keys.
+      const immutableKeys = new Set(fixedKeys);
+      for (const eye of [TherapyPlanner.RIGHTEYE, TherapyPlanner.LEFTEYE]) {
+        for (let k = 0; k < this.schedule[eye].length; k++) {
+          if (this.schedule[eye][k].status === TherapyPlanner.STATUS_COMPLETED) {
+            immutableKeys.add(`${eye}_${k}`);
+          }
         }
       }
+
+      // Phase 2: collect confirmed planned candidates from mutableKeys, sorted
+      //   deterministically by date → right-before-left → lower index.
+      const confirmedCandidates = [];
+      for (const key of [...mutableKeys]) {
+        const under = key.lastIndexOf('_');
+        const ct    = key.slice(0, under);
+        const ci    = parseInt(key.slice(under + 1), 10);
+        const appt  = this.schedule[ct][ci];
+        if (appt.status === TherapyPlanner.STATUS_PLANNED &&
+            appt.dateOrigin === DATE_ORIGIN_CONFIRMED &&
+            appt.plannedDate instanceof Date) {
+          confirmedCandidates.push({ key, type: ct, i: ci, date: normalizeDate(appt.plannedDate) });
+        }
+      }
+      confirmedCandidates.sort((a, b) => {
+        const ta = a.date.getTime(), tb = b.date.getTime();
+        if (ta !== tb) return ta - tb;
+        const eo = t => t === TherapyPlanner.RIGHTEYE ? 0 : 1;
+        if (a.type !== b.type) return eo(a.type) - eo(b.type);
+        return a.i - b.i;
+      });
+
+      // Phase 3: validate each candidate against the growing immutable set.
+      //   Valid candidates are promoted to fixed anchors and added to immutableKeys
+      //   so that later candidates are validated against already-accepted anchors.
+      for (const { key, type: ct, i: ci } of confirmedCandidates) {
+        if (this._isConfirmedAnchorEligible(ct, ci, immutableKeys)) {
+          mutableKeys.delete(key);
+          fixedKeys.add(key);
+          immutableKeys.add(key);
+        }
+        // Invalid candidates remain mutable; their confirmed date is used as a floor
+        // in _scheduleMutable (they never move backward, only forward).
+      }
     }
+    // ─────────────────────────────────────────────────────────────────────────
 
     // Build sorted work list from snapshot dates
     const items = [];
@@ -403,7 +483,7 @@ class TherapyPlanner {
     }
 
     const remaining = [...items];
-    let guard = remaining.length * remaining.length + 20;
+    let guard = Math.max(items.length, 12) * Math.max(items.length, 12) + 60;
 
     while (remaining.length > 0 && guard-- > 0) {
       // Pick first item in sorted order whose same-eye predecessor is finalised
@@ -418,6 +498,39 @@ class TherapyPlanner {
       const { type, i, key } = remaining.splice(idx, 1)[0];
       this._scheduleMutable(type, i, finalized, mode, snapshot);
       finalized.add(key);
+
+      // Phase 5 (historical only): if the same-eye successor was frozen as a
+      // confirmed anchor but is now infeasible (current appointment scheduled
+      // too late), demote it back to mutable so it can move forward.
+      if (mode === CASCADE_MODE_HISTORICAL) {
+        const nextIdx = i + 1;
+        const nextKey = `${type}_${nextIdx}`;
+        if (nextIdx < this.schedule[type].length &&
+            finalized.has(nextKey) &&
+            !remaining.some(r => r.key === nextKey)) {
+          const curr = this.schedule[type][i];
+          const next = this.schedule[type][nextIdx];
+          if (curr.plannedDate instanceof Date && next.plannedDate instanceof Date) {
+            const diff = calendarDayDifference(curr.plannedDate, next.plannedDate);
+            if (diff < next.minWeeks * 7) {
+              // Demote: remove from finalized/fixedKeys, add back to work list.
+              finalized.delete(nextKey);
+              fixedKeys.delete(nextKey);
+              const snapDate = snapshot[type] && snapshot[type][nextIdx]
+                ? snapshot[type][nextIdx].plannedDate : null;
+              remaining.push({ type, i: nextIdx, key: nextKey, snapDate });
+              remaining.sort((a, b) => {
+                const ta = a.snapDate instanceof Date ? a.snapDate.getTime() : Infinity;
+                const tb = b.snapDate instanceof Date ? b.snapDate.getTime() : Infinity;
+                if (ta !== tb) return ta - tb;
+                const eo = t => t === TherapyPlanner.RIGHTEYE ? 0 : 1;
+                if (a.type !== b.type) return eo(a.type) - eo(b.type);
+                return a.i - b.i;
+              });
+            }
+          }
+        }
+      }
     }
   }
 
@@ -469,11 +582,13 @@ class TherapyPlanner {
    */
   updateDateFor(type, index, date) {
     if (!(date instanceof Date) || isNaN(date.getTime())) {
-      return { success: false, reason: 'INVALID_DATE', message: 'The provided date is not valid.' };
+      return { success: false, reason: 'INVALID_DATE', message: 'The provided date is not valid.',
+        changedAppointments: [], warnings: [] };
     }
     const plan = this.schedule[type];
     if (!plan || index < 0 || index >= plan.length) {
-      return { success: false, reason: 'INVALID_INDEX', message: 'Invalid session index.' };
+      return { success: false, reason: 'INVALID_INDEX', message: 'Invalid session index.',
+        changedAppointments: [], warnings: [] };
     }
 
     const nd      = normalizeDate(date);
@@ -483,7 +598,8 @@ class TherapyPlanner {
     if (session.status === TherapyPlanner.STATUS_COMPLETED) {
       if (calendarDayDifference(this.today, nd) > 0) {
         return { success: false, reason: 'COMPLETED_AFTER_TODAY',
-          message: 'A completed appointment cannot be dated after today.' };
+          message: 'A completed appointment cannot be dated after today.',
+          changedAppointments: [], warnings: [] };
       }
 
       if (index > 0 &&
@@ -491,7 +607,8 @@ class TherapyPlanner {
           plan[index - 1].plannedDate instanceof Date) {
         if (calendarDayDifference(plan[index - 1].plannedDate, nd) <= 0) {
           return { success: false, reason: 'CHRONOLOGICAL_ORDER',
-            message: 'The date must be strictly after the previous completed appointment.' };
+            message: 'The date must be strictly after the previous completed appointment.',
+            changedAppointments: [], warnings: [] };
         }
       }
       if (index + 1 < plan.length &&
@@ -499,7 +616,8 @@ class TherapyPlanner {
           plan[index + 1].plannedDate instanceof Date) {
         if (calendarDayDifference(nd, plan[index + 1].plannedDate) <= 0) {
           return { success: false, reason: 'CHRONOLOGICAL_ORDER',
-            message: 'The date must be strictly before the next completed appointment.' };
+            message: 'The date must be strictly before the next completed appointment.',
+            changedAppointments: [], warnings: [] };
         }
       }
 
@@ -522,7 +640,8 @@ class TherapyPlanner {
       const v = this.validateSchedule();
       if (!v.valid) {
         this.schedule = snapshot;
-        return { success: false, reason: 'VALIDATION_FAILED', message: v.violations.join('; ') };
+        return { success: false, reason: 'VALIDATION_FAILED', message: v.violations.join('; '),
+          changedAppointments: [], warnings: [] };
       }
 
       const changedAppointments = this._buildChangedAppointments(snapshot);
@@ -533,13 +652,15 @@ class TherapyPlanner {
     // ── planned appointment ───────────────────────────────────────────────────
     if (calendarDayDifference(this.today, nd) < 0) {
       return { success: false, reason: 'BEFORE_TODAY',
-        message: 'The selected date cannot be before today.' };
+        message: 'The selected date cannot be before today.',
+        changedAppointments: [], warnings: [] };
     }
 
     if (!this.isClinicDate(nd)) {
       const DAY = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
       return { success: false, reason: 'NOT_CLINIC_DAY',
-        message: `${DAY[nd.getDay()]} is not a configured clinic day.` };
+        message: `${DAY[nd.getDay()]} is not a configured clinic day.`,
+        changedAppointments: [], warnings: [] };
     }
 
     if (index > 0 && plan[index - 1].plannedDate instanceof Date) {
@@ -548,7 +669,8 @@ class TherapyPlanner {
       if (diff < req) {
         return { success: false, reason: 'SAME_EYE_INTERVAL',
           message: `The selected date is ${diff} calendar days after the previous session;` +
-                   ` minimum is ${req} days (${session.minWeeks} weeks).` };
+                   ` minimum is ${req} days (${session.minWeeks} weeks).`,
+          changedAppointments: [], warnings: [] };
       }
     }
 
@@ -589,11 +711,13 @@ class TherapyPlanner {
         const label = otherEye === TherapyPlanner.LEFTEYE ? 'left' : 'right';
         if (absDiff === 0) {
           return { success: false, reason: 'INTER_EYE_GAP',
-            message: 'Same-day bilateral appointments are not allowed.' };
+            message: 'Same-day bilateral appointments are not allowed.',
+            changedAppointments: [], warnings: [] };
         }
         return { success: false, reason: 'INTER_EYE_GAP',
           message: `The selected date is only ${absDiff} day(s) from a ${label}-eye` +
-                   ` appointment. Minimum separation is ${this.interEyeGapDays} days.` };
+                   ` appointment. Minimum separation is ${this.interEyeGapDays} days.`,
+          changedAppointments: [], warnings: [] };
       }
     }
 
@@ -606,7 +730,8 @@ class TherapyPlanner {
     const v = this.validateSchedule();
     if (!v.valid) {
       this.schedule = snapshot;
-      return { success: false, reason: 'VALIDATION_FAILED', message: v.violations.join('; ') };
+      return { success: false, reason: 'VALIDATION_FAILED', message: v.violations.join('; '),
+        changedAppointments: [], warnings: [] };
     }
 
     const changedAppointments = this._buildChangedAppointments(snapshot);
@@ -622,11 +747,13 @@ class TherapyPlanner {
     const parsed = parseInt(minWeeks);
     if (!TherapyPlanner.MINWEEKS.includes(parsed)) {
       return { success: false, reason: 'INVALID_MINWEEKS',
-        message: `minWeeks must be one of ${TherapyPlanner.MINWEEKS.join(', ')}.` };
+        message: `minWeeks must be one of ${TherapyPlanner.MINWEEKS.join(', ')}.`,
+        changedAppointments: [], warnings: [] };
     }
     const plan = this.schedule[type];
     if (!plan || index < 0 || index >= plan.length) {
-      return { success: false, reason: 'INVALID_INDEX', message: 'Invalid session index.' };
+      return { success: false, reason: 'INVALID_INDEX', message: 'Invalid session index.',
+        changedAppointments: [], warnings: [] };
     }
 
     const otherEye = this._otherEye(type);
@@ -651,12 +778,13 @@ class TherapyPlanner {
     if (!v.valid) {
       this.schedule = snapshot;
       plan[index].minWeeks = snapshot[type][index].minWeeks; // restore interval
-      return { success: false, reason: 'VALIDATION_FAILED', message: v.violations.join('; ') };
+      return { success: false, reason: 'VALIDATION_FAILED', message: v.violations.join('; '),
+        changedAppointments: [], warnings: [] };
     }
 
     const changedAppointments = this._buildChangedAppointments(snapshot);
     this.notifyListeners();
-    return { success: true, changedAppointments };
+    return { success: true, changedAppointments, warnings: [] };
   }
 
   /**
@@ -669,10 +797,9 @@ class TherapyPlanner {
   setStatus(type, index, newStatus, date) {
     const plan = this.schedule[type];
     if (!plan || index < 0 || index >= plan.length) {
-      return { success: false, reason: 'INVALID_INDEX', message: 'Invalid session index.' };
+      return { success: false, reason: 'INVALID_INDEX', message: 'Invalid session index.',
+        changedAppointments: [], warnings: [] };
     }
-
-    // Idempotent: requesting the same status already stored is a no-op.
     if (newStatus === plan[index].status) {
       return { success: true, changedAppointments: [], warnings: [] };
     }
@@ -682,16 +809,19 @@ class TherapyPlanner {
       const nd = date instanceof Date ? normalizeDate(date) : null;
       if (!nd || isNaN(nd.getTime())) {
         return { success: false, reason: 'INVALID_DATE',
-          message: 'A date is required when marking an appointment as completed.' };
+          message: 'A date is required when marking an appointment as completed.',
+          changedAppointments: [], warnings: [] };
       }
       if (calendarDayDifference(this.today, nd) > 0) {
         return { success: false, reason: 'COMPLETED_AFTER_TODAY',
-          message: 'A completed appointment cannot be dated after today.' };
+          message: 'A completed appointment cannot be dated after today.',
+          changedAppointments: [], warnings: [] };
       }
       for (let i = 0; i < index; i++) {
         if (plan[i].status !== TherapyPlanner.STATUS_COMPLETED) {
           return { success: false, reason: 'NOT_PREFIX',
-            message: 'Completed appointments must appear before planned appointments.' };
+            message: 'Completed appointments must appear before planned appointments.',
+            changedAppointments: [], warnings: [] };
         }
       }
       if (index > 0 &&
@@ -699,7 +829,8 @@ class TherapyPlanner {
           plan[index - 1].plannedDate instanceof Date) {
         if (calendarDayDifference(plan[index - 1].plannedDate, nd) <= 0) {
           return { success: false, reason: 'CHRONOLOGICAL_ORDER',
-            message: 'The date must be strictly after the previous completed appointment.' };
+            message: 'The date must be strictly after the previous completed appointment.',
+            changedAppointments: [], warnings: [] };
         }
       }
 
@@ -723,7 +854,8 @@ class TherapyPlanner {
       const v = this.validateSchedule();
       if (!v.valid) {
         this.schedule = snapshot;
-        return { success: false, reason: 'VALIDATION_FAILED', message: v.violations.join('; ') };
+        return { success: false, reason: 'VALIDATION_FAILED', message: v.violations.join('; '),
+          changedAppointments: [], warnings: [] };
       }
 
       const changedAppointments = this._buildChangedAppointments(snapshot);
@@ -736,7 +868,8 @@ class TherapyPlanner {
       for (let i = index + 1; i < plan.length; i++) {
         if (plan[i].status === TherapyPlanner.STATUS_COMPLETED) {
           return { success: false, reason: 'NOT_LAST_COMPLETED',
-            message: 'Only the last completed appointment can be converted back to planned.' };
+            message: 'Only the last completed appointment can be converted back to planned.',
+            changedAppointments: [], warnings: [] };
         }
       }
 
@@ -753,7 +886,8 @@ class TherapyPlanner {
       const v = this.validateSchedule();
       if (!v.valid) {
         this.schedule = snapshot;
-        return { success: false, reason: 'VALIDATION_FAILED', message: v.violations.join('; ') };
+        return { success: false, reason: 'VALIDATION_FAILED', message: v.violations.join('; '),
+          changedAppointments: [], warnings: [] };
       }
 
       const changedAppointments = this._buildChangedAppointments(snapshot);
@@ -762,7 +896,8 @@ class TherapyPlanner {
     }
 
     return { success: false, reason: 'INVALID_STATUS',
-      message: `Unknown status '${newStatus}'.` };
+      message: `Unknown status '${newStatus}'.`,
+      changedAppointments: [], warnings: [] };
   }
 
   addTherapy(type) {
@@ -830,6 +965,17 @@ class TherapyPlanner {
           violations.push(`${eye}[${i}]: completed appointment appears after a planned appointment`);
         }
         if (s.status === PLANNED) seenPlanned = true;
+
+        // Validate dateOrigin for planned appointments.
+        if (s.status === PLANNED) {
+          const validOrigins = new Set([DATE_ORIGIN_GENERATED, DATE_ORIGIN_CONFIRMED]);
+          if (typeof s.dateOrigin !== 'string' || !validOrigins.has(s.dateOrigin)) {
+            violations.push(
+              `${eye}[${i}]: invalid dateOrigin '${s.dateOrigin}' ` +
+              `(must be '${DATE_ORIGIN_GENERATED}' or '${DATE_ORIGIN_CONFIRMED}')`,
+            );
+          }
+        }
 
         if (!(s.plannedDate instanceof Date) || isNaN(s.plannedDate.getTime())) {
           violations.push(`${eye}[${i}]: plannedDate is not a valid Date`); continue;
