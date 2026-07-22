@@ -4,8 +4,9 @@ function createTherapyListComponent(componentId, type, planner) {
     const TARGETMINWEEKS = 'minWeeks';
     const TARGETDATE = 'date';
     const INDEXCOLWIDTH = 'col-1';
-    const MINWEEKSCOLWIDTH = 'col-3';
-    const MINIMUMDATECOL = 'col-4';
+    const STATUSCOLWIDTH = 'col-2';
+    const MINWEEKSCOLWIDTH = 'col-2';
+    const MINIMUMDATECOL = 'col-3';
     const AVAILABLEDATESCOL = 'col-4';
 
     planner.addListener(onPlanUpdate);
@@ -74,11 +75,53 @@ function createTherapyListComponent(componentId, type, planner) {
             const row = document.createElement('div');
             row.classList.add('row', 'align-items-center', 'mt-2');
 
+            const isCompleted = item.status === TherapyPlanner.STATUS_COMPLETED;
+
             // Index column
             const indexCol = document.createElement('div');
             indexCol.classList.add(INDEXCOLWIDTH, 'd-flex', 'justify-content-center');
             indexCol.textContent = index + 1;
             row.appendChild(indexCol);
+
+            // Status column
+            const statusCol = document.createElement('div');
+            statusCol.classList.add(STATUSCOLWIDTH, 'd-flex', 'justify-content-center');
+            const statusSelect = document.createElement('select');
+            statusSelect.classList.add('form-select', 'form-select-sm');
+            statusSelect.setAttribute('id', `${type}-status-${index}`);
+            statusSelect.setAttribute('aria-label', `Status for session ${index + 1}`);
+            [TherapyPlanner.STATUS_PLANNED, TherapyPlanner.STATUS_COMPLETED].forEach(val => {
+                const opt = document.createElement('option');
+                opt.setAttribute('value', val);
+                if (item.status === val) opt.setAttribute('selected', 'selected');
+                opt.appendChild(document.createTextNode(val.charAt(0).toUpperCase() + val.slice(1)));
+                statusSelect.appendChild(opt);
+            });
+            statusSelect.addEventListener('change', (event) => {
+                const newStatus = event.target.value;
+                if (newStatus === TherapyPlanner.STATUS_COMPLETED) {
+                    // Use today as the historical date when marking completed
+                    const today = planner.today;
+                    const result = planner.setStatus(type, index, TherapyPlanner.STATUS_COMPLETED, today);
+                    if (!result.success) {
+                        event.target.value = item.status; // rollback
+                        showRowError(row, result.message);
+                    } else {
+                        clearRowError(row);
+                        if (result.warnings && result.warnings.length) showRowWarning(row, result.warnings[0]);
+                    }
+                } else {
+                    const result = planner.setStatus(type, index, TherapyPlanner.STATUS_PLANNED);
+                    if (!result.success) {
+                        event.target.value = item.status; // rollback
+                        showRowError(row, result.message);
+                    } else {
+                        clearRowError(row);
+                    }
+                }
+            });
+            statusCol.appendChild(statusSelect);
+            row.appendChild(statusCol);
 
             // Min Weeks column
             const minWeeksCol = document.createElement('div');
@@ -104,10 +147,15 @@ function createTherapyListComponent(componentId, type, planner) {
             }
             row.appendChild(minWeeksCol);
 
-            // Min Date column (earliest same-eye date)
+            // Min Date column (earliest same-eye date — shown for planned only)
             const minDateCol = document.createElement('div');
             minDateCol.classList.add(MINIMUMDATECOL, 'd-flex', 'justify-content-center');
-            if (index === 0) {
+            if (isCompleted) {
+                const badge = document.createElement('span');
+                badge.classList.add('badge', 'bg-secondary');
+                badge.textContent = 'Completed';
+                minDateCol.appendChild(badge);
+            } else if (index === 0) {
                 minDateCol.textContent = '-';
             } else if (item.earliestSameEyeDate instanceof Date) {
                 minDateCol.textContent = item.earliestSameEyeDate.toLocaleDateString('it-IT', {
@@ -126,7 +174,10 @@ function createTherapyListComponent(componentId, type, planner) {
             datePickerInput.setAttribute('id', `${type}-date-${index}`);
             datePickerInput.setAttribute('aria-label', `Appointment date for session ${index + 1}`);
 
-            if (index === 0) {
+            if (isCompleted) {
+                // Completed: allow any past date up to today; no min restriction
+                datePickerInput.setAttribute('max', formatDate(planner.today));
+            } else if (index === 0) {
                 datePickerInput.setAttribute('min', formatDate(planner.today));
             } else if (item.earliestSameEyeDate instanceof Date) {
                 datePickerInput.setAttribute('min', formatDate(item.earliestSameEyeDate));
@@ -134,7 +185,6 @@ function createTherapyListComponent(componentId, type, planner) {
 
             const valueToSet = item.plannedDate instanceof Date ? formatDate(item.plannedDate) : '';
             datePickerInput.value = valueToSet;
-            // Capture render-time value for rollback on rejected edits
             const renderValue = valueToSet;
 
             datePickerInput.addEventListener('change', (event) => {
@@ -147,6 +197,7 @@ function createTherapyListComponent(componentId, type, planner) {
                     showRowError(row, result.message);
                 } else {
                     clearRowError(row);
+                    if (result.warnings && result.warnings.length) showRowWarning(row, result.warnings[0]);
                 }
             });
 
@@ -162,6 +213,13 @@ function createTherapyListComponent(componentId, type, planner) {
         errorDiv.classList.add('text-danger', 'w-100', 'mt-1', 'therapy-error');
         errorDiv.textContent = message;
         row.appendChild(errorDiv);
+    }
+
+    function showRowWarning(row, message) {
+        const warnDiv = document.createElement('div');
+        warnDiv.classList.add('text-warning', 'w-100', 'mt-1', 'therapy-warning');
+        warnDiv.textContent = message;
+        row.appendChild(warnDiv);
     }
 
     function clearRowError(row) {
@@ -190,6 +248,11 @@ function createTherapyListComponent(componentId, type, planner) {
         indexCol.classList.add(INDEXCOLWIDTH, 'd-flex', 'justify-content-center');
         indexCol.textContent = 'Index';
         headerRow.appendChild(indexCol);
+
+        const statusCol = document.createElement('div');
+        statusCol.classList.add(STATUSCOLWIDTH, 'd-flex', 'justify-content-center');
+        statusCol.textContent = 'Status';
+        headerRow.appendChild(statusCol);
 
         const minWeeksCol = document.createElement('div');
         minWeeksCol.classList.add(MINWEEKSCOLWIDTH, 'd-flex', 'justify-content-center');

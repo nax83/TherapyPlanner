@@ -503,3 +503,402 @@ test('date inputs contain correct local YYYY-MM-DD values', () => {
     }
   });
 });
+
+// ─── 9. Historical and completed-appointment tests ───────────────────────────
+//
+// Reference today for historical tests: Tuesday 3 March 2026 (HIST_TODAY).
+// Jan 1 2026 = Thursday.  HIST_TODAY + n×7 days always stays on Tuesday.
+//
+// Default schedule with HIST_TODAY = 2026-03-03:
+//   right[0] = 2026-03-03  right[1] = 2026-03-31  right[2] = 2026-04-28
+//   left[0]  = 2026-03-17  left[1]  = 2026-04-14  left[2]  = 2026-05-12
+
+const HIST_TODAY = d(2026, 2, 3); // Tue 3 Mar 2026
+
+function histPlanner(configOverride) {
+  return new TherapyPlanner(configOverride || {}, { today: HIST_TODAY });
+}
+
+// ── 9a. Initialisation ───────────────────────────────────────────────────────
+
+test('all initially generated appointments are planned', () => {
+  const planner = histPlanner();
+  for (const eye of [TherapyPlanner.RIGHTEYE, TherapyPlanner.LEFTEYE]) {
+    for (const s of planner.getPlanByEye(eye)) {
+      assert.equal(s.status, TherapyPlanner.STATUS_PLANNED,
+        `${eye} session must default to planned`);
+    }
+  }
+});
+
+// ── 9b. Historical entry ─────────────────────────────────────────────────────
+
+test('planned can be marked completed with a historical date', () => {
+  const planner = histPlanner();
+  const result = planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 1)); // Sun Mar1
+  assert.equal(result.success, true, result.message || '');
+  const r0 = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0];
+  assert.equal(r0.status, TherapyPlanner.STATUS_COMPLETED);
+  assert.equal(fmt(r0.plannedDate), '2026-03-01');
+});
+
+test('completed appointment may be dated today', () => {
+  const planner = histPlanner(); // today=Mar3
+  const result = planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', HIST_TODAY);
+  assert.equal(result.success, true, result.message || '');
+});
+
+test('completed appointment after today is rejected', () => {
+  const planner = histPlanner();
+  const result = planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 4)); // Mar4>Mar3
+  assert.equal(result.success, false);
+  assert.equal(result.reason, 'COMPLETED_AFTER_TODAY');
+});
+
+test('multiple completed appointments can form a contiguous prefix', () => {
+  const planner = new TherapyPlanner({}, { today: d(2026, 2, 17) }); // Mar17
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3));  // Mar3
+  const r2 = planner.setStatus(TherapyPlanner.RIGHTEYE, 1, 'completed', d(2026, 2, 10)); // Mar10
+  assert.equal(r2.success, true, r2.message || '');
+  const plan = planner.getPlanByEye(TherapyPlanner.RIGHTEYE);
+  assert.equal(plan[0].status, TherapyPlanner.STATUS_COMPLETED);
+  assert.equal(plan[1].status, TherapyPlanner.STATUS_COMPLETED);
+  assert.equal(plan[2].status, TherapyPlanner.STATUS_PLANNED);
+});
+
+test('completed appointment after a planned appointment is rejected', () => {
+  const planner = histPlanner(); // right[0]=planned, right[1]=planned
+  const result = planner.setStatus(TherapyPlanner.RIGHTEYE, 1, 'completed', d(2026, 2, 1));
+  assert.equal(result.success, false);
+  assert.equal(result.reason, 'NOT_PREFIX');
+});
+
+test('historical appointments in the same eye must be chronologically ordered', () => {
+  const planner = new TherapyPlanner({}, { today: d(2026, 2, 17) });
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 10)); // Mar10
+  const result = planner.setStatus(TherapyPlanner.RIGHTEYE, 1, 'completed', d(2026, 2, 3)); // Mar3<Mar10
+  assert.equal(result.success, false);
+  assert.equal(result.reason, 'CHRONOLOGICAL_ORDER');
+});
+
+test('two completed same-eye appointments on the same date are rejected', () => {
+  const planner = new TherapyPlanner({}, { today: d(2026, 2, 17) });
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3));
+  const result = planner.setStatus(TherapyPlanner.RIGHTEYE, 1, 'completed', d(2026, 2, 3)); // same date
+  assert.equal(result.success, false);
+  assert.equal(result.reason, 'CHRONOLOGICAL_ORDER');
+});
+
+// ── 9c. Historical exceptions ────────────────────────────────────────────────
+
+test('completed appointment on a non-clinic weekday is accepted', () => {
+  const planner = histPlanner();
+  const sunday = d(2026, 2, 1); // Sunday — non-clinic
+  const result = planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', sunday);
+  assert.equal(result.success, true, result.message || '');
+  assert.equal(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].status, TherapyPlanner.STATUS_COMPLETED);
+});
+
+test('two completed same-eye appointments closer than the configured interval are accepted', () => {
+  const planner = new TherapyPlanner({}, { today: d(2026, 2, 17) });
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3));  // Mar3
+  const result = planner.setStatus(TherapyPlanner.RIGHTEYE, 1, 'completed', d(2026, 2, 10)); // Mar10 = only 7 days
+  assert.equal(result.success, true, result.message || '');
+  const v = planner.validateSchedule();
+  assert.equal(v.valid, true, v.violations && v.violations.join('; '));
+});
+
+test('two completed opposite-eye appointments less than 14 days apart are accepted', () => {
+  const planner = new TherapyPlanner({}, { today: d(2026, 2, 10) }); // Mar10
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3)); // Mar3
+  const result = planner.setStatus(TherapyPlanner.LEFTEYE, 0, 'completed', d(2026, 2, 10)); // Mar10 = 7 days from right
+  assert.equal(result.success, true, result.message || '');
+  const v = planner.validateSchedule();
+  assert.equal(v.valid, true, v.violations && v.violations.join('; '));
+});
+
+test('completed appointment on a non-clinic day generates a warning but not a blocking error', () => {
+  const planner = histPlanner();
+  const sunday = d(2026, 2, 1);
+  const result = planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', sunday);
+  assert.equal(result.success, true);
+  assert.ok(Array.isArray(result.warnings) && result.warnings.length > 0,
+    'a non-clinic completed date must generate a warning');
+});
+
+// ── 9d. Future planning from history ─────────────────────────────────────────
+
+test('first planned uses last completed appointment as the same-eye interval anchor', () => {
+  const planner = histPlanner();
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 0, 1)); // Jan1
+  const r1 = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1];
+  // earliestSameEyeDate = Jan1 + 28 = Jan29
+  assert.equal(fmt(r1.earliestSameEyeDate), '2026-01-29',
+    'earliestSameEyeDate must reflect the completed appointment + interval');
+  assert.ok(r1.plannedDate >= r1.earliestSameEyeDate,
+    'planned date must be >= the interval anchor');
+});
+
+test('first planned also respects today as a lower bound', () => {
+  const planner = histPlanner(); // today=Mar3
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 1, 1)); // Feb1; Feb1+28=Mar1<today
+  const r1 = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1];
+  assert.ok(r1.plannedDate >= HIST_TODAY,
+    `planned must be >= today (Mar3); got ${fmt(r1.plannedDate)}`);
+});
+
+test('planned appointment respects 14-day rule against a completed opposite-eye appointment', () => {
+  const planner = histPlanner(); // today=Mar3
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3)); // Mar3=today
+  // left[0] is planned Mar17. Try to move it to Mar4 — only 1 day from completed right[0].
+  const result = planner.updateDateFor(TherapyPlanner.LEFTEYE, 0, d(2026, 2, 4)); // Mar4 Wed
+  assert.equal(result.success, false);
+  assert.equal(result.reason, 'INTER_EYE_GAP');
+});
+
+test('interval from non-clinic completed date advances planned to next clinic day', () => {
+  // today=Jan5 (Mon). right[0]=Jan6 (Tue, initial). Mark completed Jan5 (Mon, non-clinic).
+  // Jan5+28=Feb2 (Mon, non-clinic). nextClinicDate(Feb2)=Feb3 (Tue).
+  const planner = new TherapyPlanner({}, { today: d(2026, 0, 5) }); // Jan5
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 0, 5)); // Jan5 = today ✓
+  const r1 = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1];
+  assert.ok(planner.isClinicDate(r1.plannedDate),
+    `planned date ${fmt(r1.plannedDate)} must be a clinic day`);
+  assert.ok(r1.plannedDate >= d(2026, 1, 2), // >= Feb2 = Jan5+28
+    `planned must be >= Jan5+28=Feb2; got ${fmt(r1.plannedDate)}`);
+});
+
+test('multiple historical appointments in both eyes correctly constrain the future plan', () => {
+  const planner = new TherapyPlanner({}, { today: d(2026, 2, 17) }); // Mar17
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3));  // Mar3
+  planner.setStatus(TherapyPlanner.LEFTEYE, 0, 'completed', d(2026, 2, 10)); // Mar10
+  const v = planner.validateSchedule();
+  assert.equal(v.valid, true, v.violations && v.violations.join('; '));
+  const r1 = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1];
+  // right[1] must be >= Mar3+28=Mar31 and >= 14 days from left[0]=Mar10 (i.e. >= Mar24)
+  assert.ok(r1.plannedDate >= d(2026, 2, 24),
+    `right[1] must be >= Mar24; got ${fmt(r1.plannedDate)}`);
+});
+
+// ── 9e. Historical correction ─────────────────────────────────────────────────
+
+test('editing a completed appointment forward reschedules affected planned appointments', () => {
+  // right[0] completed Mar3, right[1] planned Mar31 (exactly Mar3+28).
+  // Advance planner.today to Mar10, then correct right[0] to Mar10.
+  // Mar10+28=Apr7; right[1] must advance past Mar31 (its pre-edit date).
+  const planner = new TherapyPlanner({}, { today: d(2026, 2, 3) }); // Mar3
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3));
+  // right[1] is now at Mar31 (Mar3+28)
+
+  planner.today = new Date(2026, 2, 10); // simulate time passing
+  const result = planner.updateDateFor(TherapyPlanner.RIGHTEYE, 0, d(2026, 2, 10)); // Mar10 Tue
+  assert.equal(result.success, true, result.message || '');
+
+  const r1 = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1];
+  // right[1] was Mar31; after correction right[1] must be >= Mar10+28=Apr7
+  assert.ok(r1.plannedDate > d(2026, 2, 30),
+    `right[1] must advance past Mar31 (pre-edit); got ${fmt(r1.plannedDate)}`);
+  assert.ok(r1.plannedDate >= d(2026, 3, 7),
+    `right[1] must be >= Apr7 (Mar10+28); got ${fmt(r1.plannedDate)}`);
+  const v = planner.validateSchedule();
+  assert.equal(v.valid, true, v.violations && v.violations.join('; '));
+});
+
+test('editing a completed appointment backward does not pull valid planned appointments backward', () => {
+  const planner = new TherapyPlanner({}, { today: d(2026, 2, 3) }); // Mar3
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3));
+  // right[1] = Mar31
+
+  // Edit right[0] backward to Feb1 (Sun — historical exception).
+  const result = planner.updateDateFor(TherapyPlanner.RIGHTEYE, 0, d(2026, 1, 1)); // Feb1 Sun
+  assert.equal(result.success, true, result.message || '');
+
+  const r1 = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1];
+  assert.equal(fmt(r1.plannedDate), '2026-03-31',
+    `right[1] must not move backward; got ${fmt(r1.plannedDate)}`);
+});
+
+test('editing a completed appointment never changes another completed appointment', () => {
+  const planner = new TherapyPlanner({}, { today: d(2026, 2, 17) }); // Mar17
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3));  // Mar3
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 1, 'completed', d(2026, 2, 10)); // Mar10
+
+  const r0Before = fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].plannedDate);
+  planner.updateDateFor(TherapyPlanner.RIGHTEYE, 1, d(2026, 2, 17)); // move right[1] to Mar17
+
+  const r0After = fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].plannedDate);
+  assert.equal(r0After, r0Before, 'right[0] must not change when right[1] is edited');
+});
+
+test('a rejected completed edit restores the complete previous schedule', () => {
+  const planner = new TherapyPlanner({}, { today: d(2026, 2, 17) }); // Mar17
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3));
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 1, 'completed', d(2026, 2, 10));
+
+  const scheduleBefore = JSON.stringify(planner.schedule);
+  // Edit right[0] to Mar11 — would be after right[1]=Mar10 → chronological violation
+  const result = planner.updateDateFor(TherapyPlanner.RIGHTEYE, 0, d(2026, 2, 11));
+  assert.equal(result.success, false);
+  assert.equal(JSON.stringify(planner.schedule), scheduleBefore, 'schedule must be unchanged');
+});
+
+test('correcting a historical appointment can cause a cross-eye cascade of planned appointments', () => {
+  // right[0] completed Mar3, left[0] forced to Mar24 (close to Mar17=today).
+  // Edit right[0] to Mar17 → |Mar24-Mar17|=7<14 → left[0] must cascade to Mar31.
+  const planner = new TherapyPlanner({}, { today: d(2026, 2, 17) }); // Mar17
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3));
+  // Force left[0] closer to Mar17 for a visible cascade
+  planner.schedule[TherapyPlanner.LEFTEYE][0].plannedDate = d(2026, 2, 24); // Mar24 Tue
+
+  const result = planner.updateDateFor(TherapyPlanner.RIGHTEYE, 0, d(2026, 2, 17)); // Mar17 Tue
+  assert.equal(result.success, true, result.message || '');
+
+  const l0 = planner.getPlanByEye(TherapyPlanner.LEFTEYE)[0];
+  // nextClinicDate(Mar17+14=Mar31) = Mar31 (Tue)
+  assert.ok(l0.plannedDate >= d(2026, 2, 31),
+    `left[0] must advance to >= Mar31; got ${fmt(l0.plannedDate)}`);
+  const v = planner.validateSchedule();
+  assert.equal(v.valid, true, v.violations && v.violations.join('; '));
+});
+
+// ── 9f. Status transitions ────────────────────────────────────────────────────
+
+test('changing planned to completed triggers cascade on following appointments', () => {
+  const planner = histPlanner(); // today=Mar3, right[0]=Mar3 (planned)
+  const result = planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3));
+  assert.equal(result.success, true, result.message || '');
+  assert.equal(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].status, TherapyPlanner.STATUS_COMPLETED);
+  const r1 = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1];
+  assert.equal(r1.status, TherapyPlanner.STATUS_PLANNED);
+  assert.ok(r1.plannedDate >= d(2026, 2, 31),
+    `right[1] must be >= Mar31 (Mar3+28); got ${fmt(r1.plannedDate)}`);
+  const v = planner.validateSchedule();
+  assert.equal(v.valid, true, v.violations && v.violations.join('; '));
+});
+
+test('an invalid planned-to-completed transition is rolled back transactionally', () => {
+  const planner = histPlanner();
+  const scheduleBefore = JSON.stringify(planner.schedule);
+  // right[1] cannot be completed while right[0] is still planned
+  const result = planner.setStatus(TherapyPlanner.RIGHTEYE, 1, 'completed', d(2026, 2, 1));
+  assert.equal(result.success, false);
+  assert.equal(JSON.stringify(planner.schedule), scheduleBefore, 'schedule must be unchanged');
+});
+
+test('completed-to-planned is allowed when the session is the last completed in the eye', () => {
+  const planner = histPlanner();
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3));
+  const result = planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'planned');
+  assert.equal(result.success, true, result.message || '');
+  assert.equal(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].status, TherapyPlanner.STATUS_PLANNED);
+  const v = planner.validateSchedule();
+  assert.equal(v.valid, true, v.violations && v.violations.join('; '));
+});
+
+test('completed-to-planned is rejected when another completed appointment follows it', () => {
+  const planner = new TherapyPlanner({}, { today: d(2026, 2, 17) });
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3));
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 1, 'completed', d(2026, 2, 10));
+  const result = planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'planned'); // not the last completed
+  assert.equal(result.success, false);
+  assert.equal(result.reason, 'NOT_LAST_COMPLETED');
+});
+
+test('completed-to-planned transition does not produce a planned appointment before today', () => {
+  const planner = histPlanner(); // today=Mar3
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3)); // completed today
+  const result = planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'planned');
+  assert.equal(result.success, true, result.message || '');
+  const r0 = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0];
+  assert.ok(r0.plannedDate >= HIST_TODAY,
+    `planned date after transition must be >= today; got ${fmt(r0.plannedDate)}`);
+});
+
+test('cannot mark appointment completed with a future date via setStatus', () => {
+  const planner = histPlanner();
+  const result = planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 4)); // Mar4>Mar3
+  assert.equal(result.success, false);
+  assert.equal(result.reason, 'COMPLETED_AFTER_TODAY');
+});
+
+// ── 9g. Global validation with mixed statuses ─────────────────────────────────
+
+test('completed-to-completed clinic-day exceptions do not fail global validation', () => {
+  const planner = new TherapyPlanner({}, { today: d(2026, 2, 17) });
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 1)); // Sun Mar1 — non-clinic
+  const v = planner.validateSchedule();
+  assert.equal(v.valid, true, v.violations && v.violations.join('; '));
+});
+
+test('completed-to-completed same-eye interval exceptions do not fail global validation', () => {
+  const planner = new TherapyPlanner({}, { today: d(2026, 2, 17) });
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3));
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 1, 'completed', d(2026, 2, 10)); // only 7 days later
+  const v = planner.validateSchedule();
+  assert.equal(v.valid, true, v.violations && v.violations.join('; '));
+});
+
+test('completed-to-completed cross-eye gap exceptions do not fail global validation', () => {
+  const planner = new TherapyPlanner({}, { today: d(2026, 2, 10) });
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3)); // Mar3
+  planner.setStatus(TherapyPlanner.LEFTEYE, 0, 'completed', d(2026, 2, 10)); // Mar10, only 7 days from right
+  const v = planner.validateSchedule();
+  assert.equal(v.valid, true, v.violations && v.violations.join('; '));
+});
+
+test('completed-to-planned cross-eye violations do fail global validation', () => {
+  const planner = histPlanner(); // today=Mar3
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3)); // Mar3 (today)
+  // Force left[0] planned to Mar10 — only 7 days from completed right[0]=Mar3
+  planner.schedule[TherapyPlanner.LEFTEYE][0].plannedDate = d(2026, 2, 10);
+  const v = planner.validateSchedule();
+  assert.equal(v.valid, false);
+  assert.ok(v.violations.some(m => m.includes('LEFTEYE[0]') || m.includes('14')),
+    'violation must mention the cross-eye gap');
+});
+
+test('planned-to-planned cross-eye violations do fail global validation', () => {
+  const planner = histPlanner(); // today=Mar3, right[0]=Mar3, left[0]=Mar17
+  // Force left[0] to Mar4 — only 1 day from right[0]=Mar3
+  planner.schedule[TherapyPlanner.LEFTEYE][0].plannedDate = d(2026, 2, 4); // Mar4 Wed
+  const v = planner.validateSchedule();
+  assert.equal(v.valid, false);
+  assert.ok(v.violations.some(m => m.includes('14') || m.toLowerCase().includes('apart')),
+    'violation must mention the gap');
+});
+
+test('completed-to-planned same-eye interval violations do fail global validation', () => {
+  const planner = histPlanner(); // today=Mar3
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3)); // Mar3
+  // Force right[1] to Mar10 — only 7 days from completed right[0]=Mar3
+  planner.schedule[TherapyPlanner.RIGHTEYE][1].plannedDate = d(2026, 2, 10); // Mar10 Tue
+  const v = planner.validateSchedule();
+  assert.equal(v.valid, false);
+  assert.ok(v.violations.some(m => m.includes('interval')),
+    'violation must mention the interval');
+});
+
+// ── 9h. Add / remove with completed prefix ───────────────────────────────────
+
+test('adding an appointment with a completed prefix works correctly', () => {
+  const planner = histPlanner();
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3));
+  const result = planner.addTherapy(TherapyPlanner.RIGHTEYE);
+  assert.equal(result, true);
+  const plan = planner.getPlanByEye(TherapyPlanner.RIGHTEYE);
+  assert.equal(plan[0].status, TherapyPlanner.STATUS_COMPLETED);
+  assert.equal(plan[plan.length - 1].status, TherapyPlanner.STATUS_PLANNED);
+  const v = planner.validateSchedule();
+  assert.equal(v.valid, true, v.violations && v.violations.join('; '));
+});
+
+test('removing the last planned session with a completed prefix leaves a valid schedule', () => {
+  const planner = histPlanner(); // 3 right sessions
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, 'completed', d(2026, 2, 3));
+  const result = planner.removeTherapy(TherapyPlanner.RIGHTEYE);
+  assert.equal(result, true);
+  assert.equal(planner.getPlanByEye(TherapyPlanner.RIGHTEYE).length, 2);
+  const v = planner.validateSchedule();
+  assert.equal(v.valid, true, v.violations && v.violations.join('; '));
+});
+
