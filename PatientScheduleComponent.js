@@ -191,9 +191,27 @@ function createPatientScheduleComponent(planner, options) {
   closeBtn.classList.add('btn', 'btn-secondary', 'patient-schedule-close-btn', 'no-print');
   btnRow.appendChild(closeBtn);
 
+  // ── Print host (direct child of body — never inside overlay/dialog/root) ──
+
+  const printHost = (function getOrCreatePrintHost() {
+    let host = document.getElementById('patient-schedule-print-host');
+    if (!host) {
+      host = document.createElement('div');
+      host.setAttribute('id', 'patient-schedule-print-host');
+      host.classList.add('patient-schedule-print-host');
+      host.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(host);
+    }
+    return host;
+  })();
+
   // ── Internal state ────────────────────────────────────────────────────────
 
-  let _printEnabled = false;
+  let _printEnabled    = false;
+  let _printGeneration = 0;        // incremented on each print attempt and on close
+  let _printCleanupDone = false;   // idempotent guard for lifecycle cleanup
+  let _afterPrintHandler = null;   // stored so it can be removed
+  let _focusHandler      = null;
 
   // ── Helper functions ──────────────────────────────────────────────────────
 
@@ -223,7 +241,7 @@ function createPatientScheduleComponent(planner, options) {
   }
 
   function _updatePatientDisplay() {
-    const name = (nameInput.value || '').replace(/^\s+|\s+$/g, ''); // trim without relying on .trim()
+    const name = (nameInput.value || '').replace(/^\s+|\s+$/g, '');
     if (name) {
       patientDisplay.textContent = _labels.patientName + ': ' + name;
       patientRow.classList.remove('hidden');
@@ -268,12 +286,81 @@ function createPatientScheduleComponent(planner, options) {
     }
   }
 
-  function _closePreview() {
-    _closeOverlay();
-    nameInput.value = '';
-    _updatePatientDisplay();
-    _clearError();
-    if (typeof launchBtn.focus === 'function') launchBtn.focus();
+  // ── Print host helpers ────────────────────────────────────────────────────
+
+  /** Replace all children of printHost.  Polyfills replaceChildren(). */
+  function _replaceHostChildren() {
+    const nodes = Array.prototype.slice.call(arguments);
+    if (typeof printHost.replaceChildren === 'function') {
+      printHost.replaceChildren.apply(printHost, nodes);
+    } else {
+      while (printHost.firstChild) printHost.removeChild(printHost.firstChild);
+      nodes.forEach(function (n) { printHost.appendChild(n); });
+    }
+  }
+
+  /** Recursively remove IDs from a cloned subtree to prevent duplicate IDs. */
+  function _removeIdsRecursively(el) {
+    if (!el || typeof el !== 'object') return;
+    if (typeof el.removeAttribute === 'function') el.removeAttribute('id');
+    if ('id' in el) el.id = undefined;
+    if (Array.isArray(el.children)) el.children.forEach(_removeIdsRecursively);
+  }
+
+  /**
+   * Clone the current printable content into the print host.
+   * Strips IDs from the clone to prevent duplicate IDs in the live DOM.
+   * Sets print host to active (aria-hidden="false").
+   */
+  function _preparePrintHost() {
+    const snapshot = printable.cloneNode(true);
+    _removeIdsRecursively(snapshot);
+    _replaceHostChildren(snapshot);
+    printHost.setAttribute('aria-hidden', 'false');
+  }
+
+  /** Idempotent: removes body class, clears print host, resets aria-hidden. */
+  function _cleanupPrintState() {
+    document.body.classList.remove('printing-patient-schedule');
+    _replaceHostChildren(); // clear
+    printHost.setAttribute('aria-hidden', 'true');
+  }
+
+  function _removeLifecycleListeners() {
+    if (_afterPrintHandler && typeof window !== 'undefined') {
+      window.removeEventListener('afterprint', _afterPrintHandler);
+    }
+    _afterPrintHandler = null;
+    if (_focusHandler && typeof window !== 'undefined') {
+      window.removeEventListener('focus', _focusHandler);
+    }
+    _focusHandler = null;
+  }
+
+  /** Called at most once per print job (idempotent via flag). */
+  function _finishPrint() {
+    if (_printCleanupDone) return;
+    _printCleanupDone = true;
+    _cleanupPrintState();
+    _removeLifecycleListeners();
+  }
+
+  /**
+   * Schedule `callback` after two rendering frames to allow the browser to
+   * lay out the print host before window.print() is called.
+   * Falls back to setTimeout(0) when requestAnimationFrame is unavailable.
+   */
+  function _scheduleAfterLayout(callback) {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(function () { requestAnimationFrame(callback); });
+    } else if (typeof window !== 'undefined' &&
+               typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(function () {
+        window.requestAnimationFrame(callback);
+      });
+    } else {
+      setTimeout(callback, 0);
+    }
   }
 
   // ── Event handlers ────────────────────────────────────────────────────────
@@ -283,7 +370,6 @@ function createPatientScheduleComponent(planner, options) {
     _printEnabled = false;
     printBtn.setAttribute('disabled', 'disabled');
 
-    // Validate schedule before rendering.
     const v = planner.validateSchedule();
     if (!v.valid) {
       _clearTable();
@@ -293,7 +379,6 @@ function createPatientScheduleComponent(planner, options) {
       return;
     }
 
-    // Build the merged list from the current planner state (never cached).
     const schedule = {
       [RIGHTEYE]: planner.getPlanByEye(RIGHTEYE),
       [LEFTEYE]:  planner.getPlanByEye(LEFTEYE),
@@ -315,7 +400,6 @@ function createPatientScheduleComponent(planner, options) {
     _setGeneratedOn();
     _renderRows(rows);
 
-    // Reset patient name for each new opening.
     nameInput.value = '';
     _updatePatientDisplay();
 
@@ -325,39 +409,67 @@ function createPatientScheduleComponent(planner, options) {
 
   closeBtn.addEventListener('click', _closePreview);
 
-  // Escape key closes the preview.
   dialog.addEventListener('keydown', function (event) {
     if (event && event.key === 'Escape') _closePreview();
   });
 
-  // Patient-name input updates the printable display live.
   nameInput.addEventListener('input',  _updatePatientDisplay);
   nameInput.addEventListener('change', _updatePatientDisplay);
 
   printBtn.addEventListener('click', function () {
     if (!_printEnabled) return;
+    _clearError();
 
     if (typeof window === 'undefined' || typeof window.print !== 'function') {
       _showError('Printing is not available in this environment.');
       return;
     }
 
+    // Generation token: incrementing it cancels any pending rAF print job.
+    const myGeneration = ++_printGeneration;
+
+    // Synchronously prepare the print host snapshot before requesting layout.
+    try {
+      _preparePrintHost();
+    } catch (err) {
+      _cleanupPrintState();
+      _showError('Print preparation failed: ' + (err.message || 'unknown error'));
+      return;
+    }
+
     document.body.classList.add('printing-patient-schedule');
 
-    const afterPrintCleanup = function () {
-      document.body.classList.remove('printing-patient-schedule');
-      window.removeEventListener('afterprint', afterPrintCleanup);
-    };
-    window.addEventListener('afterprint', afterPrintCleanup);
+    // Defer window.print() to allow the browser to render the print host.
+    _scheduleAfterLayout(function () {
+      // Bail out if the print job was cancelled (e.g. preview closed).
+      if (_printGeneration !== myGeneration) return;
 
-    try {
-      window.print();
-    } catch (err) {
-      document.body.classList.remove('printing-patient-schedule');
-      window.removeEventListener('afterprint', afterPrintCleanup);
-      _showError('Printing failed: ' + (err.message || 'unknown error'));
-    }
+      _printCleanupDone   = false;
+      _afterPrintHandler  = function () { _finishPrint(); };
+      _focusHandler       = function () { _finishPrint(); };
+      window.addEventListener('afterprint', _afterPrintHandler);
+      window.addEventListener('focus',      _focusHandler);
+
+      try {
+        window.print();
+      } catch (err) {
+        _finishPrint();
+        _showError('Printing failed: ' + (err.message || 'unknown error'));
+      }
+    });
   });
+
+  function _closePreview() {
+    // Cancel any pending rAF print job and clean up any active print state.
+    _printGeneration++;
+    _cleanupPrintState();
+    _removeLifecycleListeners();
+    _closeOverlay();
+    nameInput.value = '';
+    _updatePatientDisplay();
+    _clearError();
+    if (typeof launchBtn.focus === 'function') launchBtn.focus();
+  }
 
   return root;
 }

@@ -44,15 +44,15 @@ class PMockElement {
     this.value       = '';
     this.parentNode  = null;
     this._focused    = false;
-
-    const _classes = new Set();
+    // _classes is stored as an instance property so cloneNode can copy it.
+    this._classes   = new Set();
     this.classList = {
-      add:      (...ns) => ns.forEach(n => _classes.add(n)),
-      remove:   (...ns) => ns.forEach(n => _classes.delete(n)),
-      contains: (n)     => _classes.has(n),
+      add:      (...ns) => ns.forEach(n => this._classes.add(n)),
+      remove:   (...ns) => ns.forEach(n => this._classes.delete(n)),
+      contains: (n)     => this._classes.has(n),
       toggle:   (n, force) => {
-        const next = (force === undefined) ? !_classes.has(n) : !!force;
-        next ? _classes.add(n) : _classes.delete(n);
+        const next = (force === undefined) ? !this._classes.has(n) : !!force;
+        next ? this._classes.add(n) : this._classes.delete(n);
         return next;
       },
     };
@@ -80,7 +80,10 @@ class PMockElement {
     const v = this.attributes[name];
     return (v !== undefined) ? v : null;
   }
-  removeAttribute(name) { delete this.attributes[name]; }
+  removeAttribute(name) {
+    delete this.attributes[name];
+    if (name === 'id') this.id = undefined;
+  }
   addEventListener(event, handler) {
     if (!this.eventListeners[event]) this.eventListeners[event] = [];
     this.eventListeners[event].push(handler);
@@ -101,6 +104,34 @@ class PMockElement {
   }
   focus() { this._focused = true; }
   blur()  { this._focused = false; }
+
+  /** Deep clone — copies attributes, classes, textContent, value, children.
+   *  Event listeners are NOT copied (clones are inert). */
+  cloneNode(deep) {
+    const clone = new PMockElement(this.tagName);
+    for (const [k, v] of Object.entries(this.attributes)) clone.setAttribute(k, v);
+    clone.textContent = this.textContent;
+    clone.value       = this.value;
+    for (const c of this._classes) clone._classes.add(c);
+    if (deep) {
+      for (const child of this.children) {
+        if (child && typeof child.cloneNode === 'function') {
+          clone.appendChild(child.cloneNode(true));
+        } else if (child && typeof child === 'object') {
+          // Text-node-like object
+          const tc = new PMockTextNode(child.textContent || '');
+          clone.children.push(tc);
+        }
+      }
+    }
+    return clone;
+  }
+
+  /** Remove all children, then append any supplied nodes. */
+  replaceChildren(...nodes) {
+    while (this.firstChild) this.removeChild(this.firstChild);
+    for (const node of nodes) this.appendChild(node);
+  }
 }
 
 class PMockTextNode {
@@ -119,17 +150,22 @@ class PMockDocument {
   }
   createElement(tagName)  { return new PMockElement(tagName); }
   createTextNode(text)    { return new PMockTextNode(text); }
-  getElementById(id)      { return this.root.findById(id); }
+  /** Search both the main tree and body (where printHost lives). */
+  getElementById(id)      {
+    return this.root.findById(id) || this.body.findById(id) || null;
+  }
   querySelector(sel)      {
-    if (sel.startsWith('#')) return this.root.findById(sel.slice(1));
+    if (sel.startsWith('#')) return this.getElementById(sel.slice(1));
     return null;
   }
 }
 
 class PMockWindow {
   constructor() {
-    this.print          = undefined;
-    this._listeners     = {};
+    this.print               = undefined;
+    this._listeners          = {};
+    this._rafCallbacks       = [];
+    this.requestAnimationFrame = (cb) => { this._rafCallbacks.push(cb); };
   }
   addEventListener(event, handler) {
     if (!this._listeners[event]) this._listeners[event] = [];
@@ -139,10 +175,20 @@ class PMockWindow {
     if (!this._listeners[event]) return;
     this._listeners[event] = this._listeners[event].filter(h => h !== handler);
   }
-  /** Convenience: fire the first registered handler for an event. */
+  /** Fire all registered handlers for an event. */
   fireEvent(event) {
-    const handlers = this._listeners[event] || [];
+    const handlers = (this._listeners[event] || []).slice();
     handlers.forEach(h => h());
+  }
+  /** Drain up to `n` pending requestAnimationFrame callbacks (default: all). */
+  flushRAF(n) {
+    n = (n === undefined) ? Infinity : n;
+    let count = 0;
+    while (this._rafCallbacks.length > 0 && count < n) {
+      const cb = this._rafCallbacks.shift();
+      cb(0);
+      count++;
+    }
   }
 }
 
@@ -150,6 +196,7 @@ function withPatientMockDom(fn) {
   const prevDoc  = global.document;
   const prevWin  = global.window;
   const prevTP   = global.TherapyPlanner;
+  const prevRAF  = global.requestAnimationFrame;
 
   const mockDoc  = new PMockDocument();
   const mockWin  = new PMockWindow();
@@ -157,6 +204,7 @@ function withPatientMockDom(fn) {
   global.document       = mockDoc;
   global.window         = mockWin;
   global.TherapyPlanner = TherapyPlanner;
+  global.requestAnimationFrame = mockWin.requestAnimationFrame.bind(mockWin);
 
   // PatientScheduleComponent auto-requires PatientSchedule.js if globals absent.
   delete require.cache[require.resolve('../PatientScheduleComponent.js')];
@@ -166,10 +214,11 @@ function withPatientMockDom(fn) {
     fn(create, mockDoc, mockWin);
   } finally {
     delete require.cache[require.resolve('../PatientScheduleComponent.js')];
-    if (prevDoc === undefined) delete global.document; else global.document = prevDoc;
-    if (prevWin === undefined) delete global.window;   else global.window   = prevWin;
-    if (prevTP  === undefined) delete global.TherapyPlanner;
-    else global.TherapyPlanner = prevTP;
+    if (prevDoc  === undefined) delete global.document; else global.document = prevDoc;
+    if (prevWin  === undefined) delete global.window;   else global.window   = prevWin;
+    if (prevTP   === undefined) delete global.TherapyPlanner; else global.TherapyPlanner = prevTP;
+    if (prevRAF  === undefined) delete global.requestAnimationFrame;
+    else global.requestAnimationFrame = prevRAF;
   }
 }
 
@@ -537,86 +586,6 @@ test('patient-schedule-test-11: patient name input updates display and is cleare
   });
 });
 
-// ── B-12. Print action ────────────────────────────────────────────────────
-
-test('patient-schedule-test-12: print adds body class, calls window.print, class removed on afterprint', () => {
-  withPatientMockDom((create, mockDoc, mockWin) => {
-    const planner = defaultPlanner();
-    const root    = create(planner);
-    mockDoc.root.appendChild(root);
-
-    // Open preview
-    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
-
-    const printBtn = root.findById('patient-schedule-print-btn');
-    assert.ok(printBtn, 'print button must exist');
-    assert.ok(printBtn.textContent, 'print button must have text');
-
-    // Install mock window.print
-    let printCount = 0;
-    mockWin.print = () => { printCount++; };
-
-    // Click print
-    printBtn.eventListeners['click'][0]();
-
-    assert.equal(printCount, 1, 'window.print called exactly once');
-    assert.ok(
-      mockDoc.body.classList.contains('printing-patient-schedule'),
-      'body class added during print',
-    );
-
-    // Afterprint event removes the class
-    assert.ok(
-      Array.isArray(mockWin._listeners['afterprint']) &&
-      mockWin._listeners['afterprint'].length > 0,
-      'afterprint listener must be registered',
-    );
-    mockWin.fireEvent('afterprint');
-
-    assert.ok(
-      !mockDoc.body.classList.contains('printing-patient-schedule'),
-      'body class removed after afterprint event',
-    );
-
-    // Planner schedule unchanged
-    assert.equal(planner.validateSchedule().valid, true, 'planner still valid after print');
-  });
-});
-
-// ── B-13. Print failure cleanup ────────────────────────────────────────────
-
-test('patient-schedule-test-13: print failure removes body class and shows error', () => {
-  withPatientMockDom((create, mockDoc, mockWin) => {
-    const planner = defaultPlanner();
-    const root    = create(planner);
-    mockDoc.root.appendChild(root);
-
-    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
-
-    const printBtn = root.findById('patient-schedule-print-btn');
-    assert.ok(printBtn, 'print button must exist');
-
-    mockWin.print = () => { throw new Error('printer unavailable'); };
-
-    printBtn.eventListeners['click'][0]();
-
-    // Class must be cleaned up despite the error.
-    assert.ok(
-      !mockDoc.body.classList.contains('printing-patient-schedule'),
-      'body class removed after print failure',
-    );
-
-    // Accessible error must be visible.
-    const errorEl = root.findById('patient-schedule-error');
-    assert.ok(errorEl, 'error element must exist');
-    assert.ok(!errorEl.classList.contains('hidden'), 'error visible after print failure');
-    assert.ok(errorEl.textContent.length > 0, 'error message must be non-empty');
-
-    // Planner unchanged.
-    assert.equal(planner.validateSchedule().valid, true, 'planner unchanged');
-  });
-});
-
 // ── B-14. Close and focus restoration ─────────────────────────────────────
 
 test('patient-schedule-test-14: close hides preview, Escape hides preview, focus returns to launch', () => {
@@ -816,6 +785,446 @@ test('patient-schedule-test-17: empty planned schedule shows empty message', () 
     let printCalled = false;
     mockWin.print = () => { printCalled = true; };
     printBtn.eventListeners['click'][0]();
+    mockWin.flushRAF(2);
     assert.ok(printCalled, 'window.print called for empty schedule');
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// P. Print-host architecture tests
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── P-1. Print host created at component init ─────────────────────────────
+
+test('patient-schedule-test-P1: print host appended to document.body on component creation', () => {
+  withPatientMockDom((create, mockDoc) => {
+    const planner = defaultPlanner();
+    create(planner);
+
+    const host = mockDoc.getElementById('patient-schedule-print-host');
+    assert.ok(host, 'print host element must exist');
+    assert.ok(
+      mockDoc.body.children.indexOf(host) !== -1,
+      'print host must be a direct child of document.body',
+    );
+  });
+});
+
+// ── P-2. Print host is NOT nested inside overlay or dialog ────────────────
+
+test('patient-schedule-test-P2: print host is not nested inside the component root', () => {
+  withPatientMockDom((create, mockDoc) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    const hostInRoot = root.findById('patient-schedule-print-host');
+    assert.equal(hostInRoot, null, 'print host must not be inside the component root');
+
+    // Must be in body instead.
+    const host = mockDoc.getElementById('patient-schedule-print-host');
+    assert.ok(host, 'print host must exist in document (via body)');
+  });
+});
+
+// ── P-3. Idempotent host creation: second component reuses same host ──────
+
+test('patient-schedule-test-P3: second component creation reuses existing print host', () => {
+  withPatientMockDom((create, mockDoc) => {
+    const planner = defaultPlanner();
+    create(planner); // first component
+    const hostAfterFirst = mockDoc.getElementById('patient-schedule-print-host');
+    assert.ok(hostAfterFirst, 'host created by first component');
+
+    create(planner); // second component
+    const hostAfterSecond = mockDoc.getElementById('patient-schedule-print-host');
+    assert.ok(hostAfterSecond, 'host still present after second component');
+
+    const hostsInBody = mockDoc.body.children.filter(
+      c => c && c.id === 'patient-schedule-print-host',
+    );
+    assert.equal(hostsInBody.length, 1, 'exactly one print host in body');
+    assert.equal(hostAfterFirst, hostAfterSecond, 'same host instance reused');
+  });
+});
+
+// ── P-4. Body class added synchronously before rAF fires ─────────────────
+
+test('patient-schedule-test-P4: body class added synchronously before rAF fires', () => {
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    mockWin.print = () => {};
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+    root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+
+    assert.ok(
+      mockDoc.body.classList.contains('printing-patient-schedule'),
+      'body class added synchronously before rAF fires',
+    );
+  });
+});
+
+// ── P-5. Print host receives cloneNode snapshot synchronously ─────────────
+
+test('patient-schedule-test-P5: print host receives cloneNode snapshot synchronously on print click', () => {
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    mockWin.print = () => {};
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+
+    const host = mockDoc.getElementById('patient-schedule-print-host');
+    assert.equal(host.children.length, 0, 'host empty before print clicked');
+
+    root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+
+    // _preparePrintHost() runs synchronously — host is populated before any rAF flush.
+    assert.ok(host.children.length > 0, 'host has cloned content synchronously after print click');
+
+    mockWin.flushRAF(2); // triggers window.print()
+  });
+});
+
+// ── P-6. IDs stripped from clone to prevent duplicate IDs ────────────────
+
+test('patient-schedule-test-P6: cloned print host snapshot has all IDs removed', () => {
+  function collectIds(el, ids) {
+    ids = ids || [];
+    if (!el || typeof el !== 'object') return ids;
+    if (el.id) ids.push(el.id);
+    if (Array.isArray(el.children)) el.children.forEach(c => collectIds(c, ids));
+    return ids;
+  }
+
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    mockWin.print = () => {};
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+    root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+    mockWin.flushRAF(2);
+
+    const host = mockDoc.getElementById('patient-schedule-print-host');
+    // Collect IDs from inside the clone children (not the host element itself)
+    const idsInsideClone = host.children.reduce(
+      (acc, child) => acc.concat(collectIds(child)), [],
+    );
+    assert.deepStrictEqual(
+      idsInsideClone, [],
+      'no IDs inside the cloned snapshot (prevents duplicate IDs in live DOM)',
+    );
+  });
+});
+
+// ── P-7. window.print called exactly once after double rAF flush ──────────
+
+test('patient-schedule-test-P7: window.print called exactly once after double rAF flush', () => {
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    let printCount = 0;
+    mockWin.print = () => { printCount++; };
+
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+    root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+
+    assert.equal(printCount, 0, 'window.print not called before rAF flush');
+
+    mockWin.flushRAF(2);
+
+    assert.equal(printCount, 1, 'window.print called exactly once after rAF flush');
+  });
+});
+
+// ── P-8. body class removed after afterprint event ───────────────────────
+
+test('patient-schedule-test-P8: body class removed after afterprint event fires', () => {
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    mockWin.print = () => {};
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+    root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+    mockWin.flushRAF(2);
+
+    assert.ok(
+      mockDoc.body.classList.contains('printing-patient-schedule'),
+      'body class present after print',
+    );
+
+    mockWin.fireEvent('afterprint');
+
+    assert.ok(
+      !mockDoc.body.classList.contains('printing-patient-schedule'),
+      'body class removed after afterprint event',
+    );
+  });
+});
+
+// ── P-9. Print host cleared after afterprint event ───────────────────────
+
+test('patient-schedule-test-P9: print host cleared after afterprint event', () => {
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    mockWin.print = () => {};
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+    root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+    mockWin.flushRAF(2);
+
+    const host = mockDoc.getElementById('patient-schedule-print-host');
+    assert.ok(host.children.length > 0, 'host has content before afterprint');
+
+    mockWin.fireEvent('afterprint');
+
+    assert.equal(host.children.length, 0, 'print host cleared after afterprint');
+  });
+});
+
+// ── P-10. Print failure: body class removed, host cleared, error shown ─────
+
+test('patient-schedule-test-P10: print failure removes body class, clears host, shows error', () => {
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    mockWin.print = () => { throw new Error('printer unavailable'); };
+
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+    root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+    mockWin.flushRAF(2);
+
+    assert.ok(
+      !mockDoc.body.classList.contains('printing-patient-schedule'),
+      'body class removed after print failure',
+    );
+
+    const host = mockDoc.getElementById('patient-schedule-print-host');
+    assert.equal(host.children.length, 0, 'print host cleared after print failure');
+
+    const errorEl = root.findById('patient-schedule-error');
+    assert.ok(errorEl, 'error element must exist');
+    assert.ok(!errorEl.classList.contains('hidden'), 'error visible after print failure');
+    assert.ok(errorEl.textContent.length > 0, 'error message non-empty after failure');
+
+    assert.equal(planner.validateSchedule().valid, true, 'planner unchanged after print failure');
+  });
+});
+
+// ── P-11. Generation token cancels stale print on close ──────────────────
+
+test('patient-schedule-test-P11: closing preview before rAF fires cancels pending print', () => {
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    let printCount = 0;
+    mockWin.print = () => { printCount++; };
+
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+    root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+
+    // Close BEFORE rAF fires — cancels the pending print job.
+    root.findById('patient-schedule-close-btn').eventListeners['click'][0]();
+
+    // Flush any queued rAF callbacks — print must NOT be called.
+    mockWin.flushRAF(10);
+
+    assert.equal(printCount, 0, 'window.print not called after close cancels print job');
+    assert.ok(
+      !mockDoc.body.classList.contains('printing-patient-schedule'),
+      'body class not added after cancelled print',
+    );
+  });
+});
+
+// ── P-12. Idempotent cleanup: afterprint safe to fire multiple times ──────
+
+test('patient-schedule-test-P12: afterprint fired twice does not crash or leave body class', () => {
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    mockWin.print = () => {};
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+    root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+    mockWin.flushRAF(2);
+
+    mockWin.fireEvent('afterprint');
+    mockWin.fireEvent('afterprint'); // second fire must be safe
+
+    assert.ok(
+      !mockDoc.body.classList.contains('printing-patient-schedule'),
+      'body class absent after double afterprint',
+    );
+    const host = mockDoc.getElementById('patient-schedule-print-host');
+    assert.equal(host.children.length, 0, 'host cleared after double afterprint');
+  });
+});
+
+// ── P-13. window.print undefined: error shown, no body class ─────────────
+
+test('patient-schedule-test-P13: unavailable window.print shows error and skips body class', () => {
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    mockWin.print = undefined;
+
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+    root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+
+    const errorEl = root.findById('patient-schedule-error');
+    assert.ok(errorEl, 'error element must exist');
+    assert.ok(!errorEl.classList.contains('hidden'), 'error visible when print unavailable');
+    assert.ok(errorEl.textContent.length > 0, 'error message non-empty');
+
+    assert.ok(
+      !mockDoc.body.classList.contains('printing-patient-schedule'),
+      'body class must not be added when print is unavailable',
+    );
+  });
+});
+
+// ── P-14. Empty schedule still produces a printable snapshot ─────────────
+
+test('patient-schedule-test-P14: empty planned list still produces printable host snapshot', () => {
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const mockPlanner = {
+      validateSchedule: () => ({ valid: true }),
+      getPlanByEye: () => [{ status: 'completed', plannedDate: d(2026, 0, 6) }],
+    };
+
+    const root = create(mockPlanner);
+    mockDoc.root.appendChild(root);
+
+    let printCount = 0;
+    mockWin.print = () => { printCount++; };
+
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+    root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+    mockWin.flushRAF(2);
+
+    assert.equal(printCount, 1, 'window.print called for empty schedule');
+
+    const host = mockDoc.getElementById('patient-schedule-print-host');
+    assert.ok(host.children.length > 0, 'host has snapshot even for empty appointment list');
+
+    mockWin.fireEvent('afterprint');
+    assert.equal(host.children.length, 0, 'host cleared after afterprint');
+  });
+});
+
+// ── P-15. CSS regression: old fragile strategies absent, new strategy present
+
+test('patient-schedule-test-P15: patient-schedule.css uses new direct-child print strategy', () => {
+  const fs   = require('fs');
+  const path = require('path');
+  const css  = fs.readFileSync(
+    path.join(__dirname, '..', 'patient-schedule.css'), 'utf8',
+  );
+
+  // Must NOT be present (old fragile strategy)
+  assert.ok(
+    !css.includes('body.printing-patient-schedule *\n') &&
+    !css.includes('body.printing-patient-schedule * {'),
+    'CSS must not use global descendant selector body.printing-patient-schedule *',
+  );
+  assert.ok(
+    !css.includes('visibility: hidden'),
+    'CSS must not use visibility: hidden (old approach)',
+  );
+
+  // No position: absolute on printable in the @media print block.
+  const printMediaIdx = css.indexOf('@media print');
+  assert.ok(printMediaIdx !== -1, '@media print block must exist');
+  const printBlock = css.slice(printMediaIdx);
+  assert.ok(
+    !printBlock.includes('position: absolute'),
+    'print CSS must not use position: absolute on printable',
+  );
+
+  // Must be present (new strategy)
+  assert.ok(
+    css.includes('.patient-schedule-print-host'),
+    'CSS must define .patient-schedule-print-host',
+  );
+  assert.ok(
+    css.includes('body.printing-patient-schedule > *'),
+    'CSS must use direct-child selector body.printing-patient-schedule > *',
+  );
+  assert.ok(
+    css.includes('position: static'),
+    'CSS must reset printable to position: static in print media',
+  );
+});
+
+// ── P-16. Full lifecycle: open → print → afterprint → close ──────────────
+
+test('patient-schedule-test-P16: full print lifecycle open→print→afterprint→close', () => {
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    let printCount = 0;
+    mockWin.print = () => { printCount++; };
+
+    const launchBtn = root.findById('patient-schedule-launch-btn');
+    const printBtn  = root.findById('patient-schedule-print-btn');
+    const closeBtn  = root.findById('patient-schedule-close-btn');
+    const overlay   = root.findById('patient-schedule-overlay');
+    const host      = mockDoc.getElementById('patient-schedule-print-host');
+
+    // ── Open ──────────────────────────────────────────────────────────────
+    launchBtn.eventListeners['click'][0]();
+    assert.ok(!overlay.classList.contains('hidden'), 'overlay open after launch');
+
+    // ── Print (synchronous prep + deferred window.print) ─────────────────
+    printBtn.eventListeners['click'][0]();
+    assert.ok(
+      mockDoc.body.classList.contains('printing-patient-schedule'),
+      'body class added synchronously',
+    );
+    assert.equal(printCount, 0, 'print not called yet (before rAF)');
+    // _preparePrintHost() runs synchronously — host already has the snapshot.
+    assert.ok(host.children.length > 0, 'host has content synchronously after print click');
+
+    // ── Flush rAF (triggers window.print) ─────────────────────────────────
+    mockWin.flushRAF(2);
+    assert.equal(printCount, 1, 'print called after rAF flush');
+    assert.ok(host.children.length > 0, 'host has content after rAF');
+
+    // ── Afterprint ────────────────────────────────────────────────────────
+    mockWin.fireEvent('afterprint');
+    assert.ok(
+      !mockDoc.body.classList.contains('printing-patient-schedule'),
+      'body class removed after afterprint',
+    );
+    assert.equal(host.children.length, 0, 'host cleared after afterprint');
+
+    // ── Close ─────────────────────────────────────────────────────────────
+    closeBtn.eventListeners['click'][0]();
+    assert.ok(overlay.classList.contains('hidden'), 'overlay hidden after close');
+    assert.ok(launchBtn._focused, 'focus returned to launch button');
+
+    assert.equal(planner.validateSchedule().valid, true, 'planner still valid throughout');
   });
 });

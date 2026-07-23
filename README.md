@@ -239,10 +239,12 @@ No PDF library is used. The browser handles PDF generation natively through its 
 ### Print layout
 
 The print CSS (`patient-schedule.css`) ensures that:
-- Only the patient document is visible when printing — the planner cards and all UI controls are hidden.
+- Only the patient document is visible when printing — a dedicated print host element (direct child of `<body>`) receives a snapshot of the printable content, and all other page children are hidden.
+- `window.print()` is deferred by two `requestAnimationFrame` calls to allow the browser to fully lay out the print host before the dialog opens. This prevents blank-page print output.
 - The table header repeats on additional pages.
 - Appointment rows do not split across page breaks.
 - The document is formatted for A4 portrait.
+- After printing (or if printing fails), the print-mode body class is removed and the print host is cleared.
 
 
 
