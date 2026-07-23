@@ -300,11 +300,12 @@ function createPatientScheduleComponent(planner, options) {
   }
 
   /** Recursively remove IDs from a cloned subtree to prevent duplicate IDs. */
-  function _removeIdsRecursively(el) {
-    if (!el || typeof el !== 'object') return;
-    if (typeof el.removeAttribute === 'function') el.removeAttribute('id');
-    if ('id' in el) el.id = undefined;
-    if (Array.isArray(el.children)) el.children.forEach(_removeIdsRecursively);
+  function _removeIdsRecursively(element) {
+    if (!element || element.nodeType !== 1) return;
+    element.removeAttribute('id');
+    for (const child of Array.from(element.children)) {
+      _removeIdsRecursively(child);
+    }
   }
 
   /**

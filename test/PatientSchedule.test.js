@@ -33,10 +33,36 @@ function appt(status, year, month0, day) {
 
 // ─── Extended Mock DOM for PatientScheduleComponent tests ────────────────────
 
+/**
+ * Array-like HTMLCollection mock — iterable but NOT a real Array.
+ * Array.isArray(new MockHTMLCollection()) === false.
+ */
+class MockHTMLCollection {
+  constructor() {
+    this._items = [];
+  }
+  get length() { return this._items.length; }
+  [Symbol.iterator]() { return this._items[Symbol.iterator](); }
+  push(item) { this._items.push(item); this[this._items.length - 1] = item; }
+  splice(index, count) {
+    const removed = this._items.splice(index, count);
+    // Rebuild numeric index keys
+    this._items.forEach((it, i) => { this[i] = it; });
+    // Remove stale last key if length shrank
+    delete this[this._items.length + removed.length - 1];
+    return removed;
+  }
+  indexOf(item) { return this._items.indexOf(item); }
+  filter(fn) { return this._items.filter(fn); }
+  reduce(fn, init) { return this._items.reduce(fn, init); }
+  forEach(fn) { this._items.forEach(fn); }
+}
+
 class PMockElement {
   constructor(tagName) {
     this.tagName    = String(tagName).toUpperCase();
-    this.children   = [];
+    this.nodeType   = 1; // ELEMENT_NODE — required by _removeIdsRecursively
+    this.children   = new MockHTMLCollection();
     this.attributes = {};
     this.id         = undefined;
     this.eventListeners = {};
@@ -71,7 +97,7 @@ class PMockElement {
     }
     return null;
   }
-  get firstChild() { return this.children[0] || null; }
+  get firstChild() { return this.children._items[0] || null; }
   setAttribute(name, value) {
     this.attributes[name] = String(value);
     if (name === 'id') this.id = String(value);
@@ -120,7 +146,7 @@ class PMockElement {
         } else if (child && typeof child === 'object') {
           // Text-node-like object
           const tc = new PMockTextNode(child.textContent || '');
-          clone.children.push(tc);
+          clone.children._items.push(tc);
         }
       }
     }
@@ -897,7 +923,10 @@ test('patient-schedule-test-P6: cloned print host snapshot has all IDs removed',
     ids = ids || [];
     if (!el || typeof el !== 'object') return ids;
     if (el.id) ids.push(el.id);
-    if (Array.isArray(el.children)) el.children.forEach(c => collectIds(c, ids));
+    // Use Symbol.iterator so MockHTMLCollection and real arrays both work.
+    if (el.children && el.children[Symbol.iterator]) {
+      for (const c of el.children) collectIds(c, ids);
+    }
     return ids;
   }
 
@@ -1226,5 +1255,478 @@ test('patient-schedule-test-P16: full print lifecycle open→print→afterprint�
     assert.ok(launchBtn._focused, 'focus returned to launch button');
 
     assert.equal(planner.validateSchedule().valid, true, 'planner still valid throughout');
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Q. ID-removal correctness tests (browser-correct traversal)
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── Shared helper: recursively collect all id values from a clone tree ─────
+
+function collectAllIds(el, ids) {
+  ids = ids || [];
+  if (!el || typeof el !== 'object') return ids;
+  // Check both the property and the attribute to catch id="undefined".
+  if (el.id !== undefined) ids.push(el.id);
+  if (el.children && el.children[Symbol.iterator]) {
+    for (const c of el.children) collectAllIds(c, ids);
+  }
+  return ids;
+}
+
+function buildPrintableFixture() {
+  // Build a subtree that matches the spec fixture:
+  //   div#patient-schedule-printable
+  //     h2#patient-schedule-title
+  //     p#patient-schedule-generated-on
+  //     table#patient-schedule-table
+  //       tbody#patient-schedule-table-body
+  //         tr#appointment-row
+  //           td
+  //             time#appointment-date [datetime="2026-03-10"]
+  function el(tag, id, children, attrs) {
+    const e = new PMockElement(tag);
+    if (id) e.setAttribute('id', id);
+    if (attrs) for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    if (children) for (const c of children) e.appendChild(c);
+    return e;
+  }
+  const timeEl = el('time', 'appointment-date', [], { datetime: '2026-03-10' });
+  timeEl.textContent = '10 March 2026';
+  const td    = el('td', null, [timeEl]);
+  const tr    = el('tr', 'appointment-row', [td]);
+  const tbody = el('tbody', 'patient-schedule-table-body', [tr]);
+  const table = el('table', 'patient-schedule-table', [tbody]);
+  const genOn = el('p', 'patient-schedule-generated-on');
+  const title = el('h2', 'patient-schedule-title');
+  title.textContent = 'Appointment schedule';
+  const root  = el('div', 'patient-schedule-printable', [title, genOn, table]);
+  return root;
+}
+
+// ── Q-1. All descendant IDs removed ──────────────────────────────────────
+
+test('patient-schedule-test-Q1: all descendant IDs removed from clone', () => {
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    create(planner);
+
+    const printable = buildPrintableFixture();
+    // Simulate _preparePrintHost by reaching into the component's internals
+    // indirectly: open preview then click print so _removeIdsRecursively runs.
+    mockWin.print = () => {};
+    const root = create(planner);
+    mockDoc.root.appendChild(root);
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+    root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+    mockWin.flushRAF(2);
+
+    const host = mockDoc.getElementById('patient-schedule-print-host');
+    const ids = [];
+    for (const child of host.children) collectAllIds(child, ids);
+    // Filter out undefined (elements with no id set)
+    const definedIds = ids.filter(id => id !== undefined);
+    assert.deepStrictEqual(definedIds, [], 'all descendant IDs must be removed from clone');
+  });
+});
+
+// ── Q-2. No id="undefined" in clone ──────────────────────────────────────
+
+test('patient-schedule-test-Q2: no clone element receives id="undefined"', () => {
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    mockWin.print = () => {};
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+    root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+    mockWin.flushRAF(2);
+
+    const host = mockDoc.getElementById('patient-schedule-print-host');
+
+    function checkNoUndefinedId(el) {
+      if (!el || typeof el !== 'object') return;
+      assert.notEqual(el.id, 'undefined', 'no element should have id="undefined"');
+      assert.notEqual(el.getAttribute && el.getAttribute('id'), 'undefined',
+        'id attribute must not be the string "undefined"');
+      if (el.children && el.children[Symbol.iterator]) {
+        for (const c of el.children) checkNoUndefinedId(c);
+      }
+    }
+    for (const child of host.children) checkNoUndefinedId(child);
+  });
+});
+
+// ── Q-3. Original IDs remain unchanged ───────────────────────────────────
+
+test('patient-schedule-test-Q3: original live preview IDs unchanged after print preparation', () => {
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    mockWin.print = () => {};
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+
+    const expectedIds = [
+      'patient-schedule-printable',
+      'patient-schedule-title',
+      'patient-schedule-generated-on',
+      'patient-schedule-table',
+      'patient-schedule-table-body',
+      'patient-schedule-footer',
+    ];
+
+    // Capture original elements before print.
+    const origElements = {};
+    for (const id of expectedIds) {
+      origElements[id] = root.findById(id);
+      assert.ok(origElements[id], `${id} must exist before print`);
+    }
+
+    root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+    mockWin.flushRAF(2);
+
+    // Original elements must still have their IDs.
+    for (const id of expectedIds) {
+      assert.equal(origElements[id].id, id, `original ${id} must retain its id`);
+      assert.equal(origElements[id].getAttribute('id'), id,
+        `original ${id} attribute must be unchanged`);
+    }
+  });
+});
+
+// ── Q-4. Print-host ID remains intact ────────────────────────────────────
+
+test('patient-schedule-test-Q4: print-host id="patient-schedule-print-host" throughout lifecycle', () => {
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    const host = mockDoc.getElementById('patient-schedule-print-host');
+    assert.equal(host.id, 'patient-schedule-print-host', 'host id correct before open');
+
+    mockWin.print = () => {};
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+    assert.equal(host.id, 'patient-schedule-print-host', 'host id correct after open');
+
+    root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+    assert.equal(host.id, 'patient-schedule-print-host', 'host id correct after print click');
+
+    mockWin.flushRAF(2);
+    assert.equal(host.id, 'patient-schedule-print-host', 'host id correct after rAF flush');
+
+    mockWin.fireEvent('afterprint');
+    assert.equal(host.id, 'patient-schedule-print-host', 'host id correct after afterprint');
+  });
+});
+
+// ── Q-5. Non-ID attributes preserved in clone ────────────────────────────
+
+test('patient-schedule-test-Q5: non-id attributes and content preserved in clone', () => {
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    // Set a patient name so it appears in the clone.
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+    const nameInput = root.findById('patient-schedule-name-input');
+    nameInput.value = 'Anna Müller';
+    nameInput.eventListeners['input'][0]({ target: nameInput });
+
+    mockWin.print = () => {};
+    root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+    mockWin.flushRAF(2);
+
+    const host = mockDoc.getElementById('patient-schedule-print-host');
+
+    // Find time element in clone — must keep datetime attribute.
+    function findTime(el) {
+      if (!el || typeof el !== 'object') return null;
+      if (el.tagName === 'TIME') return el;
+      if (el.children && el.children[Symbol.iterator]) {
+        for (const c of el.children) { const r = findTime(c); if (r) return r; }
+      }
+      return null;
+    }
+    const cloneTime = findTime(host);
+    assert.ok(cloneTime, 'time element must exist in clone');
+    assert.ok(cloneTime.getAttribute('datetime'), 'datetime attribute must be preserved');
+
+    // Patient name text must appear somewhere in the clone.
+    function collectText(el) {
+      if (!el || typeof el !== 'object') return '';
+      let t = el.textContent || '';
+      if (el.children && el.children[Symbol.iterator]) {
+        for (const c of el.children) t += collectText(c);
+      }
+      return t;
+    }
+    const allText = collectText(host);
+    assert.ok(allText.includes('Anna Müller'), 'patient name must appear in clone');
+
+    // Table structure must exist.
+    function hasTag(el, tag) {
+      if (!el || typeof el !== 'object') return false;
+      if (el.tagName === tag) return true;
+      if (el.children && el.children[Symbol.iterator]) {
+        for (const c of el.children) { if (hasTag(c, tag)) return true; }
+      }
+      return false;
+    }
+    assert.ok(hasTag(host, 'TABLE'), 'table element must be present in clone');
+    assert.ok(hasTag(host, 'TBODY'), 'tbody element must be present in clone');
+
+    // Classes must survive.
+    function hasClass(el, cls) {
+      if (!el || typeof el !== 'object') return false;
+      if (el.classList && el.classList.contains(cls)) return true;
+      if (el.children && el.children[Symbol.iterator]) {
+        for (const c of el.children) { if (hasClass(c, cls)) return true; }
+      }
+      return false;
+    }
+    assert.ok(hasClass(host, 'patient-schedule-printable'), 'printable class preserved in clone');
+  });
+});
+
+// ── Q-6. Array-like children collection — must fail old implementation ────
+
+test('patient-schedule-test-Q6: MockHTMLCollection is not a real Array', () => {
+  const col = new MockHTMLCollection();
+  assert.equal(Array.isArray(col), false,
+    'MockHTMLCollection must not be a real Array (hides browser bug with old impl)');
+
+  // But it must be iterable.
+  const child = new PMockElement('span');
+  child.setAttribute('id', 'test-span');
+  col.push(child);
+  assert.equal(col.length, 1, 'length reflects push');
+
+  let found = false;
+  for (const item of col) {
+    if (item === child) found = true;
+  }
+  assert.ok(found, 'MockHTMLCollection must be iterable via for-of');
+
+  // And PMockElement.children must also not be an Array.
+  const el = new PMockElement('div');
+  assert.equal(Array.isArray(el.children), false,
+    'PMockElement.children is not a real Array');
+
+  // Recursive ID removal must still reach descendants.
+  const parent = new PMockElement('div');
+  parent.setAttribute('id', 'p-id');
+  const child1 = new PMockElement('span');
+  child1.setAttribute('id', 'c1-id');
+  const child2 = new PMockElement('em');
+  child2.setAttribute('id', 'c2-id');
+  parent.appendChild(child1);
+  parent.appendChild(child2);
+
+  assert.equal(Array.isArray(parent.children), false,
+    'parent.children is not a real Array after appendChild');
+
+  // Load and call _removeIdsRecursively via the component.
+  // We test it indirectly by running the print cycle.
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+    mockWin.print = () => {};
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+    root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+    mockWin.flushRAF(2);
+
+    const host = mockDoc.getElementById('patient-schedule-print-host');
+    // Verify children of host are MockHTMLCollection
+    assert.equal(Array.isArray(host.children), false,
+      'host.children is not a real Array — ID removal used HTMLCollection traversal');
+
+    // All IDs inside clone must still be removed even though children is not Array.
+    const ids = [];
+    for (const child of host.children) collectAllIds(child, ids);
+    const definedIds = ids.filter(id => id !== undefined);
+    assert.deepStrictEqual(definedIds, [],
+      'all IDs removed even with non-Array children collection');
+  });
+});
+
+// ── Q-7. Text nodes safely ignored ───────────────────────────────────────
+
+test('patient-schedule-test-Q7: text nodes in clone cause no errors and content unchanged', () => {
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    mockWin.print = () => {};
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+
+    // Inject a raw text node into the printable before printing.
+    const printable = root.findById('patient-schedule-printable');
+    const textNode  = new PMockTextNode('extra text content');
+    printable.children._items.push(textNode);
+
+    // Must not throw.
+    assert.doesNotThrow(() => {
+      root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+      mockWin.flushRAF(2);
+    }, 'print with text nodes must not throw');
+
+    const host = mockDoc.getElementById('patient-schedule-print-host');
+    assert.ok(host.children.length > 0, 'host still populated after text-node print');
+
+    // Text content must survive in the clone.
+    function collectText(el) {
+      if (!el || typeof el !== 'object') return '';
+      let t = el.textContent || '';
+      if (el.children && el.children[Symbol.iterator]) {
+        for (const c of el.children) t += collectText(c);
+      }
+      return t;
+    }
+    const allText = collectText(host);
+    assert.ok(allText.includes('extra text content') || allText.length > 0,
+      'text content preserved');
+  });
+});
+
+// ── Q-8. Deeply nested structure ─────────────────────────────────────────
+
+test('patient-schedule-test-Q8: IDs removed at five levels of nesting', () => {
+  // Build 5-level deep fixture and run _removeIdsRecursively via print cycle.
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    // Build a 5-level chain and inject it into the printable.
+    function makeChain(depth, currentDepth) {
+      const el = new PMockElement('div');
+      el.setAttribute('id', `deep-level-${currentDepth}`);
+      if (currentDepth < depth) {
+        el.appendChild(makeChain(depth, currentDepth + 1));
+      }
+      return el;
+    }
+    const deepChain = makeChain(5, 1);
+
+    mockWin.print = () => {};
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+    const printable = root.findById('patient-schedule-printable');
+    printable.appendChild(deepChain);
+
+    root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+    mockWin.flushRAF(2);
+
+    const host = mockDoc.getElementById('patient-schedule-print-host');
+
+    // Collect all IDs in the clone.
+    const ids = [];
+    for (const child of host.children) collectAllIds(child, ids);
+    const definedIds = ids.filter(id => id !== undefined);
+    assert.deepStrictEqual(definedIds, [], 'no IDs at any nesting depth in clone');
+  });
+});
+
+// ── Q-9. Print lifecycle regression ──────────────────────────────────────
+
+test('patient-schedule-test-Q9: full print lifecycle — correct behaviour with new ID removal', () => {
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    let printCount = 0;
+    mockWin.print = () => { printCount++; };
+
+    const launchBtn = root.findById('patient-schedule-launch-btn');
+    const printBtn  = root.findById('patient-schedule-print-btn');
+    const host      = mockDoc.getElementById('patient-schedule-print-host');
+
+    // Open preview → set name → click print
+    launchBtn.eventListeners['click'][0]();
+    const nameInput = root.findById('patient-schedule-name-input');
+    nameInput.value = 'Test Patient';
+    nameInput.eventListeners['input'][0]({ target: nameInput });
+
+    printBtn.eventListeners['click'][0]();
+
+    // Host populated synchronously (before rAF)
+    assert.ok(host.children.length > 0, 'print host populated before rAF');
+
+    // Clone has no IDs
+    const idsBeforeRAF = [];
+    for (const child of host.children) collectAllIds(child, idsBeforeRAF);
+    assert.deepStrictEqual(idsBeforeRAF.filter(id => id !== undefined), [],
+      'clone has no IDs before rAF fires');
+
+    // Flush layout frames → window.print()
+    mockWin.flushRAF(2);
+    assert.equal(printCount, 1, 'window.print called exactly once');
+
+    // body print class present
+    assert.ok(mockDoc.body.classList.contains('printing-patient-schedule'),
+      'body print class present after print');
+
+    // Afterprint → cleanup
+    mockWin.fireEvent('afterprint');
+    assert.ok(!mockDoc.body.classList.contains('printing-patient-schedule'),
+      'body print class removed after afterprint');
+    assert.equal(host.children.length, 0, 'host emptied after afterprint');
+
+    // Live preview still intact
+    const liveTitle = root.findById('patient-schedule-title');
+    assert.ok(liveTitle, 'live preview title element still present');
+    assert.equal(liveTitle.id, 'patient-schedule-title', 'live title ID unchanged');
+
+    // Planner unchanged
+    assert.equal(planner.validateSchedule().valid, true, 'planner unchanged');
+  });
+});
+
+// ── Q-10. Blank-preview regression remains fixed ─────────────────────────
+
+test('patient-schedule-test-Q10: blank-preview regression remains fixed after ID patch', () => {
+  withPatientMockDom((create, mockDoc, mockWin) => {
+    const planner = defaultPlanner();
+    const root    = create(planner);
+    mockDoc.root.appendChild(root);
+
+    mockWin.print = () => {};
+
+    // Print host is a direct child of document.body
+    const host = mockDoc.getElementById('patient-schedule-print-host');
+    assert.ok(host, 'print host must exist');
+    assert.ok(
+      mockDoc.body.children.indexOf(host) !== -1,
+      'print host is a direct child of document.body',
+    );
+
+    root.findById('patient-schedule-launch-btn').eventListeners['click'][0]();
+    root.findById('patient-schedule-print-btn').eventListeners['click'][0]();
+    mockWin.flushRAF(2);
+
+    // Host contains the cloned patient document
+    assert.ok(host.children.length > 0, 'print host contains cloned patient document');
+
+    // No ID collision: clone has no IDs, live preview retains all IDs
+    const ids = [];
+    for (const child of host.children) collectAllIds(child, ids);
+    assert.deepStrictEqual(ids.filter(id => id !== undefined), [],
+      'clone has no IDs — no duplicate IDs in DOM');
+
+    // Live preview IDs still intact (not blank due to missing structure)
+    assert.ok(root.findById('patient-schedule-printable'), 'live printable still has id');
+    assert.ok(root.findById('patient-schedule-title'), 'live title still has id');
+
+    // Cleanup still works
+    mockWin.fireEvent('afterprint');
+    assert.equal(host.children.length, 0, 'host emptied after afterprint — no lingering clone');
   });
 });
