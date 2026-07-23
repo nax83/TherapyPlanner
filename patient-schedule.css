@@ -1,0 +1,198 @@
+/* ─── patient-schedule.css ───────────────────────────────────────────────────
+ * Styles for the patient-facing appointment list overlay and printable document.
+ * Print rules use the class 'printing-patient-schedule' added to <body> before
+ * window.print() is called and removed via the 'afterprint' event.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+/* ── Utility ─────────────────────────────────────────────────────────────── */
+
+.hidden {
+  display: none !important;
+}
+
+/* ── Launch button placement ─────────────────────────────────────────────── */
+
+.patient-schedule-root {
+  margin-bottom: 1rem;
+}
+
+.patient-schedule-launch {
+  margin-bottom: 0.5rem;
+}
+
+/* ── Overlay backdrop ────────────────────────────────────────────────────── */
+
+.patient-schedule-overlay {
+  display: none;
+}
+
+.patient-schedule-overlay.open {
+  display: flex;
+  position: fixed;
+  inset: 0;
+  z-index: 1050;
+  background: rgba(0, 0, 0, 0.5);
+  align-items: flex-start;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 2rem 1rem;
+}
+
+/* ── Dialog panel ────────────────────────────────────────────────────────── */
+
+.patient-schedule-dialog {
+  background: #fff;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+  max-width: 720px;
+  width: 100%;
+  padding: 2rem;
+  position: relative;
+}
+
+/* ── Error area ──────────────────────────────────────────────────────────── */
+
+.patient-schedule-error {
+  background: #f8d7da;
+  border: 1px solid #f5c2c7;
+  border-radius: 0.375rem;
+  color: #842029;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+/* ── Patient-name row ────────────────────────────────────────────────────── */
+
+.patient-schedule-name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.patient-schedule-name-input {
+  border: 1px solid #dee2e6;
+  border-radius: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  flex: 1;
+  font-size: 1rem;
+}
+
+/* ── Printable document ──────────────────────────────────────────────────── */
+
+.patient-schedule-printable h2 {
+  margin-top: 0;
+  font-size: 1.5rem;
+}
+
+.patient-schedule-patient-row {
+  font-weight: 600;
+  margin: 0.25rem 0;
+}
+
+.patient-schedule-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+}
+
+.patient-schedule-table th,
+.patient-schedule-table td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.patient-schedule-table thead {
+  background: #f8f9fa;
+}
+
+.patient-schedule-footer {
+  font-style: italic;
+  color: #555;
+  margin-top: 1rem;
+}
+
+/* ── Action buttons ──────────────────────────────────────────────────────── */
+
+.patient-schedule-btn-row {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  flex-wrap: wrap;
+}
+
+/* ── Print page setup ────────────────────────────────────────────────────── */
+
+@page {
+  size: A4 portrait;
+  margin: 15mm;
+}
+
+/* ── Print rules ─────────────────────────────────────────────────────────── */
+
+@media print {
+  /* Hide everything on the page when printing the patient document. */
+  body.printing-patient-schedule * {
+    visibility: hidden !important;
+  }
+
+  /* Reveal only the printable patient document. */
+  body.printing-patient-schedule .patient-schedule-printable,
+  body.printing-patient-schedule .patient-schedule-printable * {
+    visibility: visible !important;
+  }
+
+  /* Position the printable document to fill the page. */
+  body.printing-patient-schedule .patient-schedule-printable {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    background: #fff;
+    color: #000;
+    padding: 0;
+  }
+
+  /* Hide all screen-only controls. */
+  .no-print {
+    display: none !important;
+  }
+
+  /* Ensure table headers repeat on each printed page. */
+  thead {
+    display: table-header-group;
+  }
+
+  /* Prevent appointment rows from splitting across page breaks. */
+  tr {
+    break-inside: avoid;
+  }
+
+  /* Full-width table with no box-shadow or border-radius. */
+  .patient-schedule-table {
+    width: 100%;
+    border-collapse: collapse;
+    box-shadow: none;
+  }
+
+  .patient-schedule-table th,
+  .patient-schedule-table td {
+    border-bottom: 1px solid #ccc;
+    padding: 0.4rem 0.5rem;
+  }
+
+  /* Overlay backdrop is invisible in print. */
+  .patient-schedule-overlay.open {
+    position: static;
+    background: none;
+    padding: 0;
+    display: block;
+  }
+
+  .patient-schedule-dialog {
+    box-shadow: none;
+    border-radius: 0;
+    padding: 0;
+  }
+}

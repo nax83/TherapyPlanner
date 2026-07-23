@@ -23,6 +23,7 @@ The two eye schedules are **cross-eye coupled, not independent**: every appointm
 - **Persistent validation messages** — errors and warnings survive planner-triggered redraws without duplicating.
 - **Clinic-day enforcement** — bookings are constrained to configured valid weekdays (default: Tuesday, Wednesday, Thursday).
 - **No npm runtime dependencies** — pure vanilla JavaScript; Bootstrap and normalize.css are loaded from CDN.
+- **Printable patient appointment list** — generates a merged, chronologically ordered list of upcoming appointments from both eyes for the patient to take home. See [Patient Appointment List](#patient-appointment-list) below.
 
 ## Getting Started
 
@@ -193,7 +194,57 @@ Only appointments whose date actually changed are included.
 
 Accepted confirmed anchors (those that remain exactly at their confirmed date) are not included unless they moved.
 
-## Calendar-Day Safety
+## Patient Appointment List
+
+The **"Patient appointment list"** button (shown above the scheduling cards) opens a patient-facing print preview.
+
+### What is included
+
+Only **upcoming `planned` appointments** are shown — completed historical appointments are excluded.
+
+Both eyes are merged into a single **chronological list**:
+
+| Date | Day | Treatment |
+|------|-----|-----------|
+| 6 January 2026 | Tuesday | Right eye |
+| 20 January 2026 | Tuesday | Left eye |
+| 3 February 2026 | Tuesday | Right eye |
+| … | … | … |
+
+### Patient name (optional)
+
+The preview includes an optional **Patient name** field. Entering a name shows it in the printable header. The name:
+- is **not stored** anywhere (not in `localStorage`, not in the URL, not sent to any server);
+- exists only in the component's current DOM instance;
+- is **cleared automatically** when the preview is closed.
+
+### How to print / save as PDF
+
+1. Click **"Patient appointment list"** to open the preview.
+2. Optionally enter the patient's name.
+3. Click **"Print / Save as PDF"**.
+4. The browser print dialog opens.
+5. To save a PDF: choose **"Save as PDF"** (or equivalent) in the print dialog destination.
+
+No PDF library is used. The browser handles PDF generation natively through its print dialog.
+
+### What is NOT included in this feature
+
+- Email sending (not implemented).
+- `mailto:` links (not implemented).
+- Clipboard copying (not implemented).
+- Completed appointment history (planned only).
+- Multilingual UI (English only).
+
+### Print layout
+
+The print CSS (`patient-schedule.css`) ensures that:
+- Only the patient document is visible when printing — the planner cards and all UI controls are hidden.
+- The table header repeats on additional pages.
+- Appointment rows do not split across page breaks.
+- The document is formatted for A4 portrait.
+
+
 
 All therapy intervals are expressed in **calendar days**. No scheduling rule uses fixed 24-hour (86 400 s) arithmetic.
 
@@ -298,12 +349,16 @@ No mutation occurs, no listeners are notified.
 ```
 TherapyPlanner/
 ├── config/
-│   └── scheduleConfig.json    # valid clinic weekdays + interEyeGapDays
+│   └── scheduleConfig.json        # valid clinic weekdays + interEyeGapDays
 ├── test/
-│   └── TherapyPlanner.test.js
-├── index.html                 # app entry point
-├── TherapyPlanner.js          # scheduling engine and data model
-├── TherapyListComponent.js    # DOM component (one instance per eye)
+│   ├── TherapyPlanner.test.js     # scheduling engine tests
+│   └── PatientSchedule.test.js    # patient appointment list tests
+├── index.html                     # app entry point
+├── TherapyPlanner.js              # scheduling engine and data model
+├── TherapyListComponent.js        # DOM component (one instance per eye)
+├── PatientSchedule.js             # pure merge function + date formatting
+├── PatientScheduleComponent.js    # patient-list preview UI component
+├── patient-schedule.css           # overlay styles + print rules
 └── package.json
 ```
 
