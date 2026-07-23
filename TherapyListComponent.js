@@ -419,6 +419,10 @@ function createTherapyListComponent(cardId, type, planner) {
         plan.forEach((item, index) => {
             const row = document.createElement('div');
             row.classList.add('row', 'align-items-center', 'mt-2');
+            row.setAttribute('id', `${type}-row-${index}`);
+            const isCompleting = _pendingAction
+                && _pendingAction.kind === 'complete'
+                && _pendingAction.index === index;
 
             const indexCol = document.createElement('div');
             indexCol.classList.add(INDEXCOLWIDTH);
@@ -432,7 +436,9 @@ function createTherapyListComponent(cardId, type, planner) {
 
             const dateCol = document.createElement('div');
             dateCol.classList.add(DATECOLWIDTH);
-            dateCol.appendChild(buildDateInput(item, index));
+            if (!isCompleting) {
+                dateCol.appendChild(buildDateInput(item, index));
+            }
 
             buildActionCol(item, index, actionCol, dateCol);
 

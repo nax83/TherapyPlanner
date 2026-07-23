@@ -140,6 +140,13 @@ function collectByText(node, text) {
   return flatten(node).filter((entry) => entry.textContent.includes(text));
 }
 
+function collectDateInputs(node) {
+  return flatten(node).filter((entry) =>
+    entry.tagName === 'INPUT' &&
+    entry.getAttribute('type') === 'date'
+  );
+}
+
 function fmt(date) {
   const year = String(date.getFullYear());
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -221,10 +228,18 @@ test('ui-test-3: opening completion form is mutation-free', () => {
   const button = right.findById(`${TherapyPlanner.RIGHTEYE}-mark-completed-0`);
   click(button);
 
+  const row0 = right.findById(`${TherapyPlanner.RIGHTEYE}-row-0`);
+  assert.ok(row0, 'row 0 must exist');
   const dateInput = right.findById(`${TherapyPlanner.RIGHTEYE}-complete-date-0`);
   assert.ok(dateInput, 'completion date input must exist');
+  assert.equal(
+    right.findById(`${TherapyPlanner.RIGHTEYE}-date-0`),
+    null,
+    'ordinary appointment date input must not exist while completing'
+  );
   assert.equal(dateInput.value, fmt(planner.today));
   assert.equal(dateInput.getAttribute('max'), fmt(planner.today));
+  assert.equal(collectDateInputs(row0).length, 1);
   assert.deepEqual(snapshotPlanner(planner), before);
 });
 
@@ -239,6 +254,12 @@ test('ui-test-4: cancelling completion keeps appointment planned', () => {
   assert.equal(row0.status, TherapyPlanner.STATUS_PLANNED);
   assert.equal(fmt(row0.plannedDate), originalDate);
   assert.equal(right.findById(`${TherapyPlanner.RIGHTEYE}-complete-date-0`), null);
+  const row0Node = right.findById(`${TherapyPlanner.RIGHTEYE}-row-0`);
+  assert.ok(row0Node, 'row 0 must exist after cancel');
+  const ordinaryDateInput = right.findById(`${TherapyPlanner.RIGHTEYE}-date-0`);
+  assert.ok(ordinaryDateInput, 'ordinary input must return after cancel');
+  assert.equal(ordinaryDateInput.value, originalDate);
+  assert.equal(collectDateInputs(row0Node).length, 1);
   assert.ok(right.findById(`${TherapyPlanner.RIGHTEYE}-mark-completed-0`), 'mark button must return');
 });
 
@@ -252,9 +273,16 @@ test('ui-test-5: successful completion stores selected treatment date and shows 
   const row0 = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0];
   assert.equal(row0.status, TherapyPlanner.STATUS_COMPLETED);
   assert.equal(fmt(row0.plannedDate), '2026-07-20');
+  assert.equal(right.findById(`${TherapyPlanner.RIGHTEYE}-complete-date-0`), null);
+  const ordinaryDateInput = right.findById(`${TherapyPlanner.RIGHTEYE}-date-0`);
+  assert.ok(ordinaryDateInput, 'ordinary completed-date input must exist');
+  assert.equal(ordinaryDateInput.value, '2026-07-20');
+  assert.equal(ordinaryDateInput.getAttribute('max'), fmt(planner.today));
+  const row0Node = right.findById(`${TherapyPlanner.RIGHTEYE}-row-0`);
+  assert.ok(row0Node, 'row 0 must exist after completion');
+  assert.equal(collectDateInputs(row0Node).length, 1);
   assert.ok(right.findById(`${TherapyPlanner.RIGHTEYE}-completed-badge-0`), 'completed badge must exist');
   assert.equal(right.findById(`${TherapyPlanner.RIGHTEYE}-mark-completed-0`), null);
-  assert.ok(right.findById(`${TherapyPlanner.RIGHTEYE}-date-0`), 'date input must remain available');
 });
 
 test('ui-test-6: failed completion preserves planned state and shows error', () => {
@@ -266,7 +294,12 @@ test('ui-test-6: failed completion preserves planned state and shows error', () 
   click(right.findById(`${TherapyPlanner.RIGHTEYE}-complete-confirm-0`));
 
   assert.deepEqual(snapshotPlanner(planner), original);
-  assert.ok(right.findById(`${TherapyPlanner.RIGHTEYE}-complete-date-0`), 'pending form must stay visible');
+  const completionInput = right.findById(`${TherapyPlanner.RIGHTEYE}-complete-date-0`);
+  assert.ok(completionInput, 'pending form must stay visible');
+  assert.equal(right.findById(`${TherapyPlanner.RIGHTEYE}-date-0`), null);
+  const row0 = right.findById(`${TherapyPlanner.RIGHTEYE}-row-0`);
+  assert.ok(row0, 'row 0 must exist while completion fails');
+  assert.equal(collectDateInputs(row0).length, 1);
   const error = right.findById(`${TherapyPlanner.RIGHTEYE}-error-0`);
   assert.ok(error, 'error node must exist');
   assert.match(error.textContent, /cannot be dated after today/i);
@@ -332,6 +365,48 @@ test('ui-test-10: successful restore reverts to planned and redraws both eyes', 
   assert.equal(right.findById(`${TherapyPlanner.RIGHTEYE}-completed-badge-0`), null);
   assert.ok(right.findById(`${TherapyPlanner.RIGHTEYE}-mark-completed-0`), 'mark button must reappear');
   assert.notEqual(left.findById(`${TherapyPlanner.LEFTEYE}-date-0`).value, leftBefore);
+});
+
+test('ui-test-10b: other rows keep ordinary date inputs while row 0 is completing', () => {
+  const planner = new TherapyPlanner();
+  const { right } = createMountedComponents(planner);
+
+  click(right.findById(`${TherapyPlanner.RIGHTEYE}-mark-completed-0`));
+
+  const row0 = right.findById(`${TherapyPlanner.RIGHTEYE}-row-0`);
+  const row1 = right.findById(`${TherapyPlanner.RIGHTEYE}-row-1`);
+  const row2 = right.findById(`${TherapyPlanner.RIGHTEYE}-row-2`);
+  assert.ok(row0, 'row 0 must exist');
+  assert.ok(row1, 'row 1 must exist');
+  assert.ok(row2, 'row 2 must exist');
+  assert.ok(right.findById(`${TherapyPlanner.RIGHTEYE}-complete-date-0`), 'row 0 treatment date must exist');
+  assert.equal(right.findById(`${TherapyPlanner.RIGHTEYE}-date-0`), null);
+  assert.ok(right.findById(`${TherapyPlanner.RIGHTEYE}-date-1`), 'row 1 ordinary date must exist');
+  assert.ok(right.findById(`${TherapyPlanner.RIGHTEYE}-date-2`), 'row 2 ordinary date must exist');
+  assert.equal(collectDateInputs(row0).length, 1);
+  assert.equal(collectDateInputs(row1).length, 1);
+  assert.equal(collectDateInputs(row2).length, 1);
+});
+
+test('ui-test-10c: opening completion on another row closes the previous completion form', () => {
+  const planner = new TherapyPlanner();
+  const { right } = createMountedComponents(planner);
+
+  click(right.findById(`${TherapyPlanner.RIGHTEYE}-mark-completed-0`));
+  click(right.findById(`${TherapyPlanner.RIGHTEYE}-mark-completed-1`));
+
+  const row0 = right.findById(`${TherapyPlanner.RIGHTEYE}-row-0`);
+  const row1 = right.findById(`${TherapyPlanner.RIGHTEYE}-row-1`);
+  assert.ok(row0, 'row 0 must exist');
+  assert.ok(row1, 'row 1 must exist');
+  assert.ok(right.findById(`${TherapyPlanner.RIGHTEYE}-date-0`), 'row 0 ordinary date must return');
+  assert.equal(right.findById(`${TherapyPlanner.RIGHTEYE}-complete-date-0`), null);
+  assert.equal(right.findById(`${TherapyPlanner.RIGHTEYE}-date-1`), null);
+  assert.ok(right.findById(`${TherapyPlanner.RIGHTEYE}-complete-date-1`), 'row 1 treatment date must exist');
+  assert.equal(collectDateInputs(row0).length, 1);
+  assert.equal(collectDateInputs(row1).length, 1);
+  assert.equal(flatten(right).filter((entry) => entry.id === `${TherapyPlanner.RIGHTEYE}-complete-date-1`).length, 1);
+  assert.equal(flatten(right).filter((entry) => entry.getAttribute && entry.getAttribute('type') === 'date' && entry.id && entry.id.includes('-complete-date-')).length, 1);
 });
 
 test('ui-test-11: failed restore rolls back and keeps completed row intact', () => {
@@ -444,4 +519,23 @@ test('ui-test-17: planner is immutable under UI-only open/cancel actions', () =>
   click(right.findById(`${TherapyPlanner.RIGHTEYE}-complete-cancel-1`));
 
   assert.deepEqual(snapshotPlanner(planner), before);
+});
+
+test('ui-test-18: completed rows keep a single ordinary date input during restore confirmation', () => {
+  const planner = new TherapyPlanner();
+  planner.setStatus(TherapyPlanner.RIGHTEYE, 0, TherapyPlanner.STATUS_COMPLETED, new Date(2026, 6, 20));
+  const { right } = createMountedComponents(planner);
+
+  const row0 = right.findById(`${TherapyPlanner.RIGHTEYE}-row-0`);
+  assert.ok(row0, 'row 0 must exist');
+  assert.ok(right.findById(`${TherapyPlanner.RIGHTEYE}-date-0`), 'ordinary completed-date input must exist');
+  assert.equal(right.findById(`${TherapyPlanner.RIGHTEYE}-complete-date-0`), null);
+  assert.equal(collectDateInputs(row0).length, 1);
+
+  click(right.findById(`${TherapyPlanner.RIGHTEYE}-restore-planned-0`));
+
+  assert.ok(right.findById(`${TherapyPlanner.RIGHTEYE}-restore-confirm-0`), 'restore confirm must exist');
+  assert.ok(right.findById(`${TherapyPlanner.RIGHTEYE}-date-0`), 'ordinary completed-date input must remain');
+  assert.equal(right.findById(`${TherapyPlanner.RIGHTEYE}-complete-date-0`), null);
+  assert.equal(collectDateInputs(row0).length, 1);
 });
