@@ -2,4 +2,5 @@
 # Agent skills (local only)
 .agents/
 .claude/
+.serena/
 skills-lock.json
