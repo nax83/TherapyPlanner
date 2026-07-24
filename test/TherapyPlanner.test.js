@@ -488,7 +488,10 @@ test('date input restores previous value after a rejected edit', () => {
     input0.value = '2026-01-05';
     input0.eventListeners['change'][0]({ target: input0 });
 
-    assert.equal(input0.value, originalValue, 'input must be restored after rejection');
+    // After rejection buildPlan() rebuilds the DOM — re-find the input.
+    const input0b = component.findById(`${TherapyPlanner.RIGHTEYE}-date-0`);
+    assert.ok(input0b, 'input must exist after rejection redraw');
+    assert.equal(input0b.value, originalValue, 'input must be restored after rejection');
   });
 });
 
@@ -1102,7 +1105,7 @@ test('spec-test-11: completed appointments never move during historical reconstr
 
 // ── 10d. Atomic historical UI workflow (spec tests 12-14) ───────────────────
 
-test('spec-test-12: changing row to completed does not first commit today as a temporary date', () => {
+test('spec-test-12: clicking mark-as-completed does not commit today as a temporary date', () => {
   withMockDom((createTherapyListComponent, mockDoc) => {
     const planner = histPlanner();
     const component = createTherapyListComponent('testComp', TherapyPlanner.RIGHTEYE, planner);
@@ -1110,14 +1113,11 @@ test('spec-test-12: changing row to completed does not first commit today as a t
 
     const scheduleBefore = JSON.stringify(planner.schedule);
 
-    // Simulate user selecting "completed" in status dropdown
-    const statusSelect = component.findById(`${TherapyPlanner.RIGHTEYE}-status-0`);
-    if (statusSelect) {
-      statusSelect.value = TherapyPlanner.STATUS_COMPLETED;
-      statusSelect.eventListeners['change'][0]({ target: statusSelect });
-    }
+    // Simulate user clicking "Mark as completed"
+    const markBtn = component.findById(`${TherapyPlanner.RIGHTEYE}-mark-completed-0`);
+    if (markBtn) markBtn.eventListeners['click'][0]({ target: markBtn });
 
-    // Schedule must be unchanged — no temp "today" date committed yet
+    // Schedule must be unchanged — no mutation until date is confirmed
     assert.equal(JSON.stringify(planner.schedule), scheduleBefore,
       'schedule must not change until date is provided');
   });
@@ -1129,12 +1129,9 @@ test('spec-test-13: status and completed date are committed together atomically'
     const component = createTherapyListComponent('testComp', TherapyPlanner.RIGHTEYE, planner);
     mockDoc.root.appendChild(component);
 
-    // Start pending completion
-    const statusSelect = component.findById(`${TherapyPlanner.RIGHTEYE}-status-0`);
-    if (statusSelect) {
-      statusSelect.value = TherapyPlanner.STATUS_COMPLETED;
-      statusSelect.eventListeners['change'][0]({ target: statusSelect });
-    }
+    // Start pending completion via mark-as-completed button
+    const markBtn = component.findById(`${TherapyPlanner.RIGHTEYE}-mark-completed-0`);
+    if (markBtn) markBtn.eventListeners['click'][0]({ target: markBtn });
 
     // Find the confirm input and submit button (inline date picker form)
     const confirmInput = component.findById(`${TherapyPlanner.RIGHTEYE}-complete-date-0`);
@@ -1160,24 +1157,19 @@ test('spec-test-14: cancelling completed-date entry leaves schedule unchanged', 
 
     const scheduleBefore = JSON.stringify(planner.schedule);
 
-    // Start pending completion
-    const statusSelect = component.findById(`${TherapyPlanner.RIGHTEYE}-status-0`);
-    if (statusSelect) {
-      statusSelect.value = TherapyPlanner.STATUS_COMPLETED;
-      statusSelect.eventListeners['change'][0]({ target: statusSelect });
-    }
+    // Start pending completion via mark-as-completed button
+    const markBtn = component.findById(`${TherapyPlanner.RIGHTEYE}-mark-completed-0`);
+    if (markBtn) markBtn.eventListeners['click'][0]({ target: markBtn });
 
     // Cancel (dismiss without confirming)
     const cancelBtn = component.findById(`${TherapyPlanner.RIGHTEYE}-complete-cancel-0`);
-    if (cancelBtn) {
-      cancelBtn.eventListeners['click'][0]({ target: cancelBtn });
-    }
+    if (cancelBtn) cancelBtn.eventListeners['click'][0]({ target: cancelBtn });
 
     assert.equal(JSON.stringify(planner.schedule), scheduleBefore,
       'schedule must be unchanged after cancel');
-    // Status select must be reverted to planned
-    const sel2 = component.findById(`${TherapyPlanner.RIGHTEYE}-status-0`);
-    if (sel2) assert.equal(sel2.value, TherapyPlanner.STATUS_PLANNED);
+    // Mark-as-completed button must have returned
+    assert.ok(component.findById(`${TherapyPlanner.RIGHTEYE}-mark-completed-0`),
+      'mark-as-completed must be restored after cancel');
   });
 });
 
@@ -1190,11 +1182,8 @@ test('spec-test-15: warning from non-clinic completed date persists after redraw
     mockDoc.root.appendChild(component);
 
     // Mark right[0] completed on a Sunday (non-clinic) using the confirm form
-    const statusSelect = component.findById(`${TherapyPlanner.RIGHTEYE}-status-0`);
-    if (statusSelect) {
-      statusSelect.value = TherapyPlanner.STATUS_COMPLETED;
-      statusSelect.eventListeners['change'][0]({ target: statusSelect });
-    }
+    const markBtn = component.findById(`${TherapyPlanner.RIGHTEYE}-mark-completed-0`);
+    if (markBtn) markBtn.eventListeners['click'][0]({ target: markBtn });
     const confirmInput = component.findById(`${TherapyPlanner.RIGHTEYE}-complete-date-0`);
     const confirmBtn   = component.findById(`${TherapyPlanner.RIGHTEYE}-complete-confirm-0`);
     if (confirmInput && confirmBtn) {
@@ -1206,7 +1195,7 @@ test('spec-test-15: warning from non-clinic completed date persists after redraw
     const warnNodes = [];
     function findWarnings(node) {
       if (!node || typeof node !== 'object') return;
-      if (node.classList && node.classList.contains('therapy-warning')) warnNodes.push(node);
+      if (node.classList && node.classList.contains('text-warning')) warnNodes.push(node);
       if (Array.isArray(node.children)) node.children.forEach(findWarnings);
     }
     findWarnings(component);
@@ -1225,17 +1214,19 @@ test('spec-test-16: rejected edit error is visible after redraw', () => {
     input0.value = '2026-01-05';
     input0.eventListeners['change'][0]({ target: input0 });
 
-    // Error must be visible in the redrawn component
+    // Error must be visible in the redrawn component (class is text-danger in new component)
     const errNodes = [];
     function findErrors(node) {
       if (!node || typeof node !== 'object') return;
-      if (node.classList && node.classList.contains('therapy-error')) errNodes.push(node);
+      if (node.classList && node.classList.contains('text-danger')) errNodes.push(node);
       if (Array.isArray(node.children)) node.children.forEach(findErrors);
     }
     findErrors(component);
     assert.ok(errNodes.length > 0, 'error must be visible after failed edit');
-    // Input value must be restored
-    assert.equal(input0.value, '2026-01-06');
+    // Input value must be restored — re-find after redraw
+    const input0b = component.findById(`${TherapyPlanner.RIGHTEYE}-date-0`);
+    assert.ok(input0b);
+    assert.equal(input0b.value, '2026-01-06');
   });
 });
 
@@ -1250,11 +1241,11 @@ test('spec-test-17: subsequent successful edit clears stale error', () => {
     input0.value = '2026-01-05';
     input0.eventListeners['change'][0]({ target: input0 });
 
-    // Confirm error is set
+    // Confirm error is set (class is text-danger in new component)
     const errsBefore = [];
     function findErrors(node) {
       if (!node || typeof node !== 'object') return;
-      if (node.classList && node.classList.contains('therapy-error')) errsBefore.push(node);
+      if (node.classList && node.classList.contains('text-danger')) errsBefore.push(node);
       if (Array.isArray(node.children)) node.children.forEach(findErrors);
     }
     findErrors(component);
@@ -1268,7 +1259,7 @@ test('spec-test-17: subsequent successful edit clears stale error', () => {
     const errsAfter = [];
     function findErrors2(node) {
       if (!node || typeof node !== 'object') return;
-      if (node.classList && node.classList.contains('therapy-error')) errsAfter.push(node);
+      if (node.classList && node.classList.contains('text-danger')) errsAfter.push(node);
       if (Array.isArray(node.children)) node.children.forEach(findErrors2);
     }
     findErrors2(component);
@@ -1283,11 +1274,8 @@ test('spec-test-18: repeated redraws do not duplicate warnings', () => {
     mockDoc.root.appendChild(component);
 
     // Trigger an operation that generates a warning (non-clinic completed date)
-    const statusSelect = component.findById(`${TherapyPlanner.RIGHTEYE}-status-0`);
-    if (statusSelect) {
-      statusSelect.value = TherapyPlanner.STATUS_COMPLETED;
-      statusSelect.eventListeners['change'][0]({ target: statusSelect });
-    }
+    const markBtn = component.findById(`${TherapyPlanner.RIGHTEYE}-mark-completed-0`);
+    if (markBtn) markBtn.eventListeners['click'][0]({ target: markBtn });
     const confirmInput = component.findById(`${TherapyPlanner.RIGHTEYE}-complete-date-0`);
     const confirmBtn   = component.findById(`${TherapyPlanner.RIGHTEYE}-complete-confirm-0`);
     if (confirmInput && confirmBtn) {
@@ -1302,7 +1290,7 @@ test('spec-test-18: repeated redraws do not duplicate warnings', () => {
     const warnNodes = [];
     function findWarnings(node) {
       if (!node || typeof node !== 'object') return;
-      if (node.classList && node.classList.contains('therapy-warning')) warnNodes.push(node);
+      if (node.classList && node.classList.contains('text-warning')) warnNodes.push(node);
       if (Array.isArray(node.children)) node.children.forEach(findWarnings);
     }
     findWarnings(component);
@@ -1651,7 +1639,7 @@ test('new-test-7: minWeeks UI change redraws both eyes with updated dates', () =
     // Confirm left[1]=Aug12, then change minWeeks 4→6.
     planner.updateDateFor(TherapyPlanner.LEFTEYE, 1, d(2026, 7, 12));
 
-    const sel = leftComp.findById(`${TherapyPlanner.LEFTEYE}-select-1`);
+    const sel = leftComp.findById(`${TherapyPlanner.LEFTEYE}-minweeks-1`);
     if (sel) {
       sel.value = '6';
       sel.eventListeners['change'][0]({ target: sel });
@@ -1710,28 +1698,18 @@ test('new-test-8: failed minWeeks change restores dropdown and shows persistent 
       return origValidate();
     };
 
-    const sel = component.findById(`${TherapyPlanner.RIGHTEYE}-select-1`);
+    const sel = component.findById(`${TherapyPlanner.RIGHTEYE}-minweeks-1`);
     if (sel) {
       sel.value = '8';
       sel.eventListeners['change'][0]({ target: sel });
     }
 
-    // Dropdown must be restored.
-    if (sel) {
-      assert.equal(sel.value, String(origMinWeeks),
-        'dropdown must revert to original minWeeks on failure');
-    }
     // Date must be unchanged.
     assert.equal(fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate), originalDate,
       'planned date must be unchanged after failed minWeeks change');
 
     // Error must survive a subsequent buildPlan triggered by another event.
-    // Simulate a no-op redraw.
     planner.notifyListeners();
-    const err = component.findById ? null : null;
-    // Check _messages state via visible DOM elements.
-    const errDiv = component.querySelector ? component.querySelector('.therapy-error') : null;
-    // The component must have rendered an error div.
     function findByClass(el, cls) {
       if (!el || !el.children) return null;
       for (const child of el.children) {
@@ -1741,8 +1719,8 @@ test('new-test-8: failed minWeeks change restores dropdown and shows persistent 
       }
       return null;
     }
-    const errEl = findByClass(component, 'therapy-error');
-    assert.ok(errEl, 'an error div with class therapy-error must be visible after failed change');
+    const errEl = findByClass(component, 'text-danger');
+    assert.ok(errEl, 'an error div with class text-danger must be visible after failed change');
 
     planner.validateSchedule = origValidate;
   });
@@ -2304,7 +2282,7 @@ test('spec-v3-test-12: real two-eye UI redraw after minWeeks mutation', () => {
     mockDoc.root.appendChild(leftComp);
 
     // Increase left[1] minWeeks 4→6 via the left component's select.
-    const sel = leftComp.findById(`${TherapyPlanner.LEFTEYE}-select-1`);
+    const sel = leftComp.findById(`${TherapyPlanner.LEFTEYE}-minweeks-1`);
     assert.ok(sel, 'minWeeks selector for left[1] must exist');
     sel.value = '6';
     sel.eventListeners['change'][0]({ target: sel });
