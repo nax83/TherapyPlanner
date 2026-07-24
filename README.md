@@ -1,4 +1,5 @@
 # TherapyPlanner
+[![CI](https://github.com/nax83/TherapyPlanner/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nax83/TherapyPlanner/actions/workflows/ci.yml)
 
 A lightweight, browser-based scheduling tool for ophthalmologists managing intravitreal injection therapy programs.
 
@@ -367,4 +368,3 @@ TherapyPlanner/
 ## License
 
 MIT
-
