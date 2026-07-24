@@ -8,6 +8,7 @@
   <!-- Bootstrap CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.5.0/font/bootstrap-icons.css" rel="stylesheet">
+  <link rel="stylesheet" href="app-toolbar.css">
   <link rel="stylesheet" href="patient-schedule.css">
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -15,6 +16,7 @@
     <script src="TherapyListComponent.js"></script>
     <script src="PatientSchedule.js"></script>
     <script src="PatientScheduleComponent.js"></script>
+    <script src="AppToolbarComponent.js"></script>
   <style>
     .btn-group {
       display: block;
@@ -55,9 +57,13 @@
 
       const planner = new TherapyPlanner(config);
 
-      // Patient appointment list component (placed above the eye cards)
+      // Patient appointment list component (placed in the application toolbar)
       const patientScheduleEl = createPatientScheduleComponent(planner);
-      document.body.insertBefore(patientScheduleEl, document.querySelector('.container-fluid'));
+      const toolbarEl = createAppToolbarComponent({
+        title: 'TherapyPlanner',
+        actionElements: [patientScheduleEl],
+      });
+      document.body.insertBefore(toolbarEl, document.querySelector('.container-fluid'));
 
       const rightCard = createTherapyListComponent('cardRightEye', TherapyPlanner.RIGHTEYE, planner);
       const leftCard = createTherapyListComponent('cardLeftEye', TherapyPlanner.LEFTEYE, planner);
