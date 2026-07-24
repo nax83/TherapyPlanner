@@ -1,392 +1,502 @@
-function createTherapyListComponent(componentId, type, planner) {
+function createTherapyListComponent(cardId, type, planner) {
+    const INDEXCOLWIDTH    = 'col-1';
+    const ACTIONCOLWIDTH   = 'col-2';
+    const MINWEEKSCOLWIDTH = 'col-2';
+    const MINDATECOLWIDTH  = 'col-3';
+    const DATECOLWIDTH     = 'col-4';
+    const EM_DASH = '—';
 
-    const eyes = { [TherapyPlanner.LEFTEYE]: 'Left eye', [TherapyPlanner.RIGHTEYE]: 'Right eye' };
-    const TARGETMINWEEKS    = 'minWeeks';
-    const TARGETDATE        = 'date';
-    const INDEXCOLWIDTH     = 'col-1';
-    const STATUSCOLWIDTH    = 'col-2';
-    const MINWEEKSCOLWIDTH  = 'col-2';
-    const MINIMUMDATECOL    = 'col-3';
-    const AVAILABLEDATESCOL = 'col-4';
-
-    // ── Component state ───────────────────────────────────────────────────────
-    // Keyed message state survives planner-triggered redraws.
-    const _messages = {};   // { "RIGHTEYE_0": { error: null, warning: null }, ... }
-    let _pendingCompletion = null; // { index } — row waiting for a historical date
-    let _selfUpdating = false;     // suppress listener-triggered rebuild during own operations
-
-    function msgKey(idx) { return `${type}_${idx}`; }
-
-    function setMsg(idx, field, value) {
-        const k = msgKey(idx);
-        if (!_messages[k]) _messages[k] = { error: null, warning: null };
-        _messages[k][field] = value || null;
-    }
-    function clearMsgs(idx) { _messages[msgKey(idx)] = { error: null, warning: null }; }
-    function getMsg(idx, field) { return (_messages[msgKey(idx)] || {})[field] || null; }
-
-    planner.addListener(onPlanUpdate);
-
-    const container = document.createElement('div');
-    container.classList.add('container');
-    container.setAttribute('id', `container-${type}`);
+    let _messages = {};
+    let _pendingAction = null;
+    let _selfUpdating = false;
+    let _focusRequestId = null;
 
     const card = document.createElement('div');
-    card.classList.add('card');
-    card.setAttribute('id', componentId);
+    card.setAttribute('id', cardId);
+    card.classList.add('card', 'mt-3');
 
-    const cardHeader = document.createElement('div');
-    cardHeader.classList.add('card-header', 'd-flex');
+    const container = document.createElement('div');
+    container.setAttribute('id', `container-${type}`);
 
-    const cardHeaderLabel = document.createElement('span');
-    cardHeaderLabel.classList.add('mr-auto', 'p-2');
-    cardHeaderLabel.textContent = eyes[type];
-
-    const addButton = document.createElement('button');
-    addButton.classList.add('btn', 'btn-light', 'p-2');
-    addButton.setAttribute('aria-label', `Add session for ${eyes[type]}`);
-
-    const plusIcon = document.createElement('span');
-    plusIcon.classList.add('bi', 'bi-plus-circle', 'p-2');
-
-    const removeButton = document.createElement('button');
-    removeButton.classList.add('btn', 'btn-light');
-    removeButton.setAttribute('aria-label', `Remove last session for ${eyes[type]}`);
-
-    const minusIcon = document.createElement('span');
-    minusIcon.classList.add('bi', 'bi-dash-circle');
-
-    addButton.appendChild(plusIcon);
-    addButton.addEventListener('click', () => {
-        _selfUpdating = true;
-        planner.addTherapy(type);
-        _selfUpdating = false;
-        buildPlan();
-    });
-    removeButton.appendChild(minusIcon);
-    removeButton.addEventListener('click', () => {
-        _selfUpdating = true;
-        planner.removeTherapy(type);
-        _selfUpdating = false;
-        buildPlan();
-    });
-
-    cardHeader.appendChild(cardHeaderLabel);
-    cardHeader.appendChild(addButton);
-    cardHeader.appendChild(removeButton);
-
-    const cardBody = document.createElement('div');
-    cardBody.classList.add('card-body');
-
-    card.appendChild(cardHeader);
-    card.appendChild(cardBody);
-
-    const headerContainer = document.createElement('div');
-    headerContainer.classList.add('container');
-    headerContainer.setAttribute('id', `header-container-${type}`);
-
-    cardBody.appendChild(headerContainer);
-    cardBody.appendChild(container);
-
-    buildHeader();
-    buildPlan();
-
-    // ── Listeners ─────────────────────────────────────────────────────────────
-
-    function onPlanUpdate() {
-        // Suppress re-entry during own operations; external triggers always rebuild.
-        if (!_selfUpdating) buildPlan();
+    function eyeLabel() {
+        return type === TherapyPlanner.RIGHTEYE ? 'right eye' : 'left eye';
     }
 
-    // ── Build DOM ─────────────────────────────────────────────────────────────
-
-    function buildPlan() {
-        cleanupTherapyList();
-        planner.getPlanByEye(type).forEach((item, index) => {
-            const row = document.createElement('div');
-            row.classList.add('row', 'align-items-center', 'mt-2');
-
-            const isCompleted = item.status === TherapyPlanner.STATUS_COMPLETED;
-            const isPending   = _pendingCompletion !== null && _pendingCompletion.index === index;
-
-            // ── Index column ─────────────────────────────────────────────────
-            const indexCol = document.createElement('div');
-            indexCol.classList.add(INDEXCOLWIDTH, 'd-flex', 'justify-content-center');
-            indexCol.textContent = index + 1;
-            row.appendChild(indexCol);
-
-            // ── Status column ────────────────────────────────────────────────
-            const statusCol = document.createElement('div');
-            statusCol.classList.add(STATUSCOLWIDTH, 'd-flex', 'justify-content-center');
-
-            const statusSelect = document.createElement('select');
-            statusSelect.classList.add('form-select', 'form-select-sm');
-            statusSelect.setAttribute('id', `${type}-status-${index}`);
-            statusSelect.setAttribute('aria-label', `Status for session ${index + 1}`);
-
-            [TherapyPlanner.STATUS_PLANNED, TherapyPlanner.STATUS_COMPLETED].forEach(val => {
-                const opt = document.createElement('option');
-                opt.setAttribute('value', val);
-                // If pending, show "completed" selected but not yet committed
-                const effectiveStatus = isPending ? TherapyPlanner.STATUS_COMPLETED : item.status;
-                if (effectiveStatus === val) opt.setAttribute('selected', 'selected');
-                opt.appendChild(document.createTextNode(val.charAt(0).toUpperCase() + val.slice(1)));
-                statusSelect.appendChild(opt);
-            });
-
-            statusSelect.addEventListener('change', (event) => {
-                const newStatus = event.target.value;
-                if (newStatus === TherapyPlanner.STATUS_COMPLETED) {
-                    // Open inline date picker — do NOT commit yet
-                    _pendingCompletion = { index };
-                    _selfUpdating = true;
-                    // (no planner mutation — just show form)
-                    _selfUpdating = false;
-                    buildPlan();
-                } else {
-                    // If a pending completion for this row is open, cancelling via the selector
-                    // is a UI-only cancellation — the underlying appointment is still planned.
-                    if (_pendingCompletion !== null && _pendingCompletion.index === index) {
-                        _pendingCompletion = null;
-                        clearMsgs(index);
-                        buildPlan();
-                        return;
-                    }
-                    // Revert completed → planned
-                    _selfUpdating = true;
-                    const result = planner.setStatus(type, index, TherapyPlanner.STATUS_PLANNED);
-                    _selfUpdating = false;
-                    clearMsgs(index);
-                    if (!result.success) {
-                        event.target.value = item.status;
-                        setMsg(index, 'error', result.message);
-                    }
-                    buildPlan();
-                }
-            });
-
-            statusSelect.value = isPending ? TherapyPlanner.STATUS_COMPLETED : item.status;
-            statusCol.appendChild(statusSelect);
-            row.appendChild(statusCol);
-
-            // ── Min Weeks column ─────────────────────────────────────────────
-            const minWeeksCol = document.createElement('div');
-            minWeeksCol.classList.add(MINWEEKSCOLWIDTH, 'd-flex', 'justify-content-center');
-            if (index === 0) {
-                minWeeksCol.textContent = '-';
-            } else {
-                const selectMinWeeksInput = document.createElement('select');
-                selectMinWeeksInput.classList.add('form-select');
-                selectMinWeeksInput.setAttribute('id', `${type}-select-${index}`);
-                selectMinWeeksInput.setAttribute('aria-label', `Minimum interval for session ${index + 1}`);
-                TherapyPlanner.MINWEEKS.forEach(minWeek => {
-                    const option = document.createElement('option');
-                    option.setAttribute('value', `${minWeek}`);
-                    if (item.minWeeks === minWeek) option.setAttribute('selected', 'selected');
-                    option.appendChild(document.createTextNode(`q-${minWeek}`));
-                    selectMinWeeksInput.appendChild(option);
-                });
-                selectMinWeeksInput.addEventListener('change', (event) => {
-                    const oldMinWeeks = item.minWeeks;
-                    const newVal = parseInt(event.target.value);
-                    _selfUpdating = true;
-                    const result = planner.updateMinWeeksFor(type, index, newVal);
-                    _selfUpdating = false;
-                    clearMsgs(index);
-                    if (!result.success) {
-                        event.target.value = String(oldMinWeeks); // restore dropdown
-                        setMsg(index, 'error', result.message);
-                    }
-                    buildPlan();
-                });
-                minWeeksCol.appendChild(selectMinWeeksInput);
-            }
-            row.appendChild(minWeeksCol);
-
-            // ── Suggested Earliest column ────────────────────────────────────
-            const minDateCol = document.createElement('div');
-            minDateCol.classList.add(MINIMUMDATECOL, 'd-flex', 'justify-content-center');
-            if (isCompleted) {
-                const badge = document.createElement('span');
-                badge.classList.add('badge', 'bg-secondary');
-                badge.textContent = 'Completed';
-                minDateCol.appendChild(badge);
-            } else if (index === 0) {
-                const guidance0 = planner.getDateGuidanceFor(type, index);
-                if (guidance0.success && guidance0.editable && guidance0.suggestedEarliestDate instanceof Date) {
-                    minDateCol.textContent = guidance0.suggestedEarliestDate.toLocaleDateString('it-IT', {
-                        weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
-                    });
-                } else {
-                    minDateCol.textContent = '-';
-                }
-            } else {
-                const guidance = planner.getDateGuidanceFor(type, index);
-                if (guidance.success && guidance.editable && guidance.suggestedEarliestDate instanceof Date) {
-                    minDateCol.textContent = guidance.suggestedEarliestDate.toLocaleDateString('it-IT', {
-                        weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
-                    });
-                }
-            }
-            row.appendChild(minDateCol);
-
-            // ── Date / form column ───────────────────────────────────────────
-            const availableDatesCol = document.createElement('div');
-            availableDatesCol.classList.add(AVAILABLEDATESCOL, 'd-flex', 'justify-content-center');
-
-            if (isPending) {
-                // Inline atomic form: user picks the historical date and confirms/cancels.
-                const completeDateInput = document.createElement('input');
-                completeDateInput.classList.add('form-control');
-                completeDateInput.setAttribute('type', 'date');
-                completeDateInput.setAttribute('id', `${type}-complete-date-${index}`);
-                completeDateInput.setAttribute('aria-label', `Historical date for session ${index + 1}`);
-                completeDateInput.setAttribute('max', formatDate(planner.today));
-
-                const confirmBtn = document.createElement('button');
-                confirmBtn.classList.add('btn', 'btn-sm', 'btn-success', 'ms-1');
-                confirmBtn.setAttribute('id', `${type}-complete-confirm-${index}`);
-                confirmBtn.textContent = 'OK';
-                confirmBtn.addEventListener('click', () => {
-                    const raw = completeDateInput.value;
-                    if (!raw) { setMsg(index, 'error', 'Please enter a date.'); buildPlan(); return; }
-                    const [y, m, d] = raw.split('-').map(Number);
-                    _selfUpdating = true;
-                    const result = planner.setStatus(type, index, TherapyPlanner.STATUS_COMPLETED, new Date(y, m - 1, d));
-                    _selfUpdating = false;
-                    _pendingCompletion = null;
-                    clearMsgs(index);
-                    if (!result.success) {
-                        setMsg(index, 'error', result.message);
-                    } else if (result.warnings && result.warnings.length) {
-                        setMsg(index, 'warning', result.warnings[0]);
-                    }
-                    buildPlan();
-                });
-
-                const cancelBtn = document.createElement('button');
-                cancelBtn.classList.add('btn', 'btn-sm', 'btn-secondary', 'ms-1');
-                cancelBtn.setAttribute('id', `${type}-complete-cancel-${index}`);
-                cancelBtn.textContent = 'Cancel';
-                cancelBtn.addEventListener('click', () => {
-                    _pendingCompletion = null;
-                    clearMsgs(index);
-                    buildPlan();
-                });
-
-                availableDatesCol.appendChild(completeDateInput);
-                availableDatesCol.appendChild(confirmBtn);
-                availableDatesCol.appendChild(cancelBtn);
-            } else {
-                const datePickerInput = document.createElement('input');
-                datePickerInput.classList.add('form-control');
-                datePickerInput.setAttribute('type', 'date');
-                datePickerInput.setAttribute('id', `${type}-date-${index}`);
-                datePickerInput.setAttribute('aria-label', `Appointment date for session ${index + 1}`);
-
-                if (isCompleted) {
-                    datePickerInput.setAttribute('max', formatDate(planner.today));
-                } else {
-                    const guidanceForMin = planner.getDateGuidanceFor(type, index);
-                    if (guidanceForMin.success && guidanceForMin.editable && guidanceForMin.hardLowerBoundDate instanceof Date) {
-                        datePickerInput.setAttribute('min', formatDate(guidanceForMin.hardLowerBoundDate));
-                    }
-                }
-
-                const valueToSet = item.plannedDate instanceof Date ? formatDate(item.plannedDate) : '';
-                datePickerInput.value = valueToSet;
-                const renderValue = valueToSet;
-
-                datePickerInput.addEventListener('change', (event) => {
-                    const rawValue = event.target.value;
-                    if (!rawValue) return;
-                    const [y, m, d] = rawValue.split('-').map(Number);
-                    _selfUpdating = true;
-                    const result = planner.updateDateFor(type, index, new Date(y, m - 1, d));
-                    _selfUpdating = false;
-                    clearMsgs(index);
-                    if (!result.success) {
-                        event.target.value = renderValue;
-                        setMsg(index, 'error', result.message);
-                    } else if (result.warnings && result.warnings.length) {
-                        setMsg(index, 'warning', result.warnings[0]);
-                    }
-                    buildPlan();
-                });
-
-                availableDatesCol.appendChild(datePickerInput);
-            }
-
-            row.appendChild(availableDatesCol);
-
-            // ── Persistent messages ──────────────────────────────────────────
-            const err  = getMsg(index, 'error');
-            const warn = getMsg(index, 'warning');
-            if (err) {
-                const errorDiv = document.createElement('div');
-                errorDiv.classList.add('text-danger', 'w-100', 'mt-1', 'therapy-error');
-                errorDiv.textContent = err;
-                row.appendChild(errorDiv);
-            }
-            if (warn) {
-                const warnDiv = document.createElement('div');
-                warnDiv.classList.add('text-warning', 'w-100', 'mt-1', 'therapy-warning');
-                warnDiv.textContent = warn;
-                row.appendChild(warnDiv);
-            }
-
-            container.appendChild(row);
-        });
+    function headerLabel() {
+        return type === TherapyPlanner.RIGHTEYE ? 'Right eye' : 'Left eye';
     }
 
-    function cleanupTherapyList() {
-        while (container.firstChild) { container.removeChild(container.firstChild); }
+    function msgKey(index) {
+        return `${type}_${index}`;
+    }
+
+    function setMsg(index, field, value) {
+        const key = msgKey(index);
+        if (!_messages[key]) _messages[key] = { error: null, warning: null };
+        _messages[key][field] = value || null;
+    }
+
+    function clearMsgs(index) {
+        delete _messages[msgKey(index)];
+    }
+
+    function getMsg(index, field) {
+        const entry = _messages[msgKey(index)];
+        return entry ? entry[field] : null;
     }
 
     function formatDate(date) {
-        const year  = date.getFullYear();
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+        const year = String(date.getFullYear());
         const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day   = String(date.getDate()).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
         return `${year}-${month}-${day}`;
     }
 
+    function parseCalendarDate(rawValue) {
+        const parts = String(rawValue || '').split('-').map(Number);
+        if (parts.length !== 3 || parts.some(Number.isNaN)) return null;
+        return new Date(parts[0], parts[1] - 1, parts[2]);
+    }
+
+    function queueFocus(id) {
+        _focusRequestId = id || null;
+    }
+
+    function applyQueuedFocus() {
+        if (!_focusRequestId) return;
+        const id = _focusRequestId;
+        _focusRequestId = null;
+        const target = document.getElementById(id);
+        if (target && typeof target.focus === 'function') target.focus();
+    }
+
+    function clearPendingActionIfStale(plan) {
+        if (_pendingAction && _pendingAction.index >= plan.length) {
+            _pendingAction = null;
+        }
+    }
+
+    function performPlannerMutation(index, mutation) {
+        clearMsgs(index);
+        _selfUpdating = true;
+        const result = mutation();
+        _selfUpdating = false;
+
+        if (!result || result.success === false) {
+            setMsg(index, 'error', result && result.message ? result.message : 'Unable to update this appointment.');
+            buildPlan();
+            return false;
+        }
+
+        setMsg(index, 'warning', result.warnings && result.warnings.length ? result.warnings[0] : null);
+        _pendingAction = null;
+        buildPlan();
+        return true;
+    }
+
+    function onPlanUpdate() {
+        if (!_selfUpdating) buildPlan();
+    }
+
     function buildHeader() {
+        const cardHeader = document.createElement('div');
+        cardHeader.classList.add('card-header', 'd-flex', 'justify-content-between', 'align-items-center');
+
+        const title = document.createElement('h5');
+        title.classList.add('mb-0');
+        title.textContent = headerLabel();
+
+        const controls = document.createElement('div');
+        controls.classList.add('d-flex', 'gap-2');
+
+        const addButton = document.createElement('button');
+        addButton.classList.add('btn', 'btn-sm', 'btn-outline-primary');
+        addButton.setAttribute('type', 'button');
+        addButton.setAttribute('id', `${type}-add-therapy`);
+        addButton.textContent = 'Add';
+        addButton.addEventListener('click', () => {
+            planner.addTherapy(type);
+        });
+
+        const removeButton = document.createElement('button');
+        removeButton.classList.add('btn', 'btn-sm', 'btn-outline-danger');
+        removeButton.setAttribute('type', 'button');
+        removeButton.setAttribute('id', `${type}-remove-therapy`);
+        removeButton.textContent = 'Remove';
+        removeButton.addEventListener('click', () => {
+            planner.removeTherapy(type);
+        });
+
+        controls.appendChild(addButton);
+        controls.appendChild(removeButton);
+        cardHeader.appendChild(title);
+        cardHeader.appendChild(controls);
+        card.appendChild(cardHeader);
+    }
+
+    function buildGridHeader() {
+        // Outer container matches the id used by existing tests for header lookup
+        const headerContainer = document.createElement('div');
+        headerContainer.setAttribute('id', `header-container-${type}`);
+
         const headerRow = document.createElement('div');
-        headerRow.classList.add('row', 'align-items-center', 'g-2');
+        headerRow.classList.add('row', 'fw-semibold', 'text-muted', 'small', 'mt-2', 'mb-1', 'align-items-center');
 
         const indexCol = document.createElement('div');
-        indexCol.classList.add(INDEXCOLWIDTH, 'd-flex', 'justify-content-center');
-        indexCol.textContent = 'Index';
+        indexCol.classList.add(INDEXCOLWIDTH);
+        indexCol.textContent = '#';
         headerRow.appendChild(indexCol);
 
-        const statusCol = document.createElement('div');
-        statusCol.classList.add(STATUSCOLWIDTH, 'd-flex', 'justify-content-center');
-        statusCol.textContent = 'Status';
-        headerRow.appendChild(statusCol);
+        const actionCol = document.createElement('div');
+        actionCol.classList.add(ACTIONCOLWIDTH);
+        actionCol.textContent = 'Action';
+        headerRow.appendChild(actionCol);
 
         const minWeeksCol = document.createElement('div');
-        minWeeksCol.classList.add(MINWEEKSCOLWIDTH, 'd-flex', 'justify-content-center');
+        minWeeksCol.classList.add(MINWEEKSCOLWIDTH);
         minWeeksCol.textContent = 'Min Weeks';
         headerRow.appendChild(minWeeksCol);
 
+        // "Suggested earliest" column — exact wording and accessibility from main
         const midDateCol = document.createElement('div');
-        midDateCol.classList.add(MINIMUMDATECOL, 'd-flex', 'justify-content-center');
+        midDateCol.classList.add(MINDATECOLWIDTH);
         midDateCol.textContent = 'Suggested earliest';
-        midDateCol.setAttribute('title', 'Earliest clinic date that keeps the currently scheduled appointments in the other eye unchanged.');
-        midDateCol.setAttribute('aria-label', 'Suggested earliest: earliest clinic date that keeps the currently scheduled appointments in the other eye unchanged.');
+        midDateCol.setAttribute(
+            'title',
+            'Earliest clinic date that keeps the currently scheduled appointments in the other eye unchanged.'
+        );
+        midDateCol.setAttribute(
+            'aria-label',
+            'Suggested earliest: earliest clinic date that keeps the currently scheduled appointments in the other eye unchanged.'
+        );
         headerRow.appendChild(midDateCol);
 
-        const availableDatesCol = document.createElement('div');
-        availableDatesCol.classList.add(AVAILABLEDATESCOL, 'd-flex', 'justify-content-center');
-        availableDatesCol.textContent = 'Date';
-        headerRow.appendChild(availableDatesCol);
+        const dateCol = document.createElement('div');
+        dateCol.classList.add(DATECOLWIDTH);
+        dateCol.textContent = 'Date';
+        headerRow.appendChild(dateCol);
 
         headerContainer.appendChild(headerRow);
+        container.appendChild(headerContainer);
     }
 
+    function appendMessage(col, id, text, kind) {
+        if (!text) return;
+        const node = document.createElement('div');
+        node.setAttribute('id', id);
+        node.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+        node.setAttribute('aria-live', kind === 'error' ? 'assertive' : 'polite');
+        node.classList.add('mt-1', 'small', kind === 'error' ? 'text-danger' : 'text-warning');
+        node.textContent = text;
+        col.appendChild(node);
+    }
+
+    function buildMinWeeksControl(item, index) {
+        const col = document.createElement('div');
+        col.classList.add(MINWEEKSCOLWIDTH);
+
+        if (index === 0) {
+            col.textContent = EM_DASH;
+            return col;
+        }
+
+        const select = document.createElement('select');
+        select.classList.add('form-select', 'form-select-sm');
+        select.setAttribute('id', `${type}-minweeks-${index}`);
+        select.setAttribute('aria-label', `Minimum interval for session ${index + 1} of the ${eyeLabel()}`);
+
+        TherapyPlanner.MINWEEKS.forEach((minWeek) => {
+            const option = document.createElement('option');
+            option.setAttribute('value', String(minWeek));
+            option.textContent = `${minWeek} weeks`;
+            if (minWeek === item.minWeeks) option.selected = true;
+            select.appendChild(option);
+        });
+
+        select.addEventListener('change', (event) => {
+            const result = planner.updateMinWeeksFor(type, index, Number(event.target.value));
+            if (!result || result.success === false) {
+                setMsg(index, 'error', result && result.message ? result.message : 'Unable to update the minimum interval.');
+                buildPlan();
+                return;
+            }
+            setMsg(index, 'error', null);
+            setMsg(index, 'warning', result.warnings && result.warnings.length ? result.warnings[0] : null);
+            buildPlan();
+        });
+
+        col.appendChild(select);
+        return col;
+    }
+
+    // Suggested-earliest column cell — uses getDateGuidanceFor for planned rows.
+    function buildSuggestedDateCol(item, index) {
+        const col = document.createElement('div');
+        col.classList.add(MINDATECOLWIDTH, 'd-flex', 'align-items-center');
+
+        if (item.status === TherapyPlanner.STATUS_COMPLETED) {
+            col.textContent = EM_DASH;
+            return col;
+        }
+
+        const guidance = planner.getDateGuidanceFor(type, index);
+        if (guidance.success && guidance.editable && guidance.suggestedEarliestDate instanceof Date) {
+            col.textContent = guidance.suggestedEarliestDate.toLocaleDateString('it-IT', {
+                weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+            });
+        } else {
+            col.textContent = EM_DASH;
+        }
+
+        return col;
+    }
+
+    // Ordinary date input — uses hardLowerBoundDate as min for planned, max for completed.
+    function buildDateInput(item, index) {
+        const dateInput = document.createElement('input');
+        dateInput.classList.add('form-control', 'form-control-sm');
+        dateInput.setAttribute('type', 'date');
+        dateInput.setAttribute('id', `${type}-date-${index}`);
+        dateInput.setAttribute('aria-label', `Date for session ${index + 1} of the ${eyeLabel()}`);
+        dateInput.value = formatDate(item.plannedDate);
+
+        if (item.status === TherapyPlanner.STATUS_COMPLETED) {
+            dateInput.setAttribute('max', formatDate(planner.today));
+        } else {
+            const guidance = planner.getDateGuidanceFor(type, index);
+            if (guidance.success && guidance.editable && guidance.hardLowerBoundDate instanceof Date) {
+                dateInput.setAttribute('min', formatDate(guidance.hardLowerBoundDate));
+            }
+        }
+
+        dateInput.addEventListener('change', (event) => {
+            const nextDate = parseCalendarDate(event.target.value);
+            const result = planner.updateDateFor(type, index, nextDate);
+            if (!result || result.success === false) {
+                setMsg(index, 'error', result && result.message ? result.message : 'Unable to update the date.');
+                buildPlan();
+                return;
+            }
+            setMsg(index, 'error', null);
+            setMsg(index, 'warning', result.warnings && result.warnings.length ? result.warnings[0] : null);
+            buildPlan();
+        });
+
+        return dateInput;
+    }
+
+    function buildCompletionForm(item, index, actionCol, dateCol) {
+        const statusText = document.createElement('div');
+        statusText.classList.add('small', 'text-muted');
+        statusText.textContent = 'Completing...';
+        actionCol.appendChild(statusText);
+
+        const label = document.createElement('label');
+        label.classList.add('form-label', 'small', 'mb-1');
+        label.setAttribute('for', `${type}-complete-date-${index}`);
+        label.textContent = 'Treatment date';
+
+        const dateInput = document.createElement('input');
+        dateInput.classList.add('form-control', 'form-control-sm');
+        dateInput.setAttribute('type', 'date');
+        dateInput.setAttribute('id', `${type}-complete-date-${index}`);
+        dateInput.setAttribute('aria-label', `Treatment date for session ${index + 1} of the ${eyeLabel()}`);
+        dateInput.setAttribute('max', formatDate(planner.today));
+        dateInput.value = formatDate(planner.today);
+
+        const buttons = document.createElement('div');
+        buttons.classList.add('d-flex', 'gap-2', 'mt-2');
+
+        const confirmBtn = document.createElement('button');
+        confirmBtn.classList.add('btn', 'btn-sm', 'btn-success');
+        confirmBtn.setAttribute('type', 'button');
+        confirmBtn.setAttribute('id', `${type}-complete-confirm-${index}`);
+        confirmBtn.textContent = 'Confirm';
+        confirmBtn.addEventListener('click', () => {
+            const treatmentDate = parseCalendarDate(dateInput.value);
+            performPlannerMutation(index, () => planner.setStatus(
+                type, index, TherapyPlanner.STATUS_COMPLETED, treatmentDate
+            ));
+        });
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.classList.add('btn', 'btn-sm', 'btn-outline-secondary');
+        cancelBtn.setAttribute('type', 'button');
+        cancelBtn.setAttribute('id', `${type}-complete-cancel-${index}`);
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', () => {
+            clearMsgs(index);
+            _pendingAction = null;
+            queueFocus(`${type}-mark-completed-${index}`);
+            buildPlan();
+        });
+
+        buttons.appendChild(confirmBtn);
+        buttons.appendChild(cancelBtn);
+        dateCol.appendChild(label);
+        dateCol.appendChild(dateInput);
+        dateCol.appendChild(buttons);
+        queueFocus(`${type}-complete-date-${index}`);
+    }
+
+    function buildRestoreConfirmation(index, actionCol) {
+        const badge = document.createElement('span');
+        badge.classList.add('badge', 'bg-success');
+        badge.setAttribute('id', `${type}-completed-badge-${index}`);
+        badge.textContent = '✓ Completed';
+
+        const prompt = document.createElement('div');
+        prompt.classList.add('small');
+        prompt.textContent = 'Restore this treatment as a planned appointment?';
+
+        const buttons = document.createElement('div');
+        buttons.classList.add('d-flex', 'gap-2');
+
+        const restoreBtn = document.createElement('button');
+        restoreBtn.classList.add('btn', 'btn-sm', 'btn-outline-secondary');
+        restoreBtn.setAttribute('type', 'button');
+        restoreBtn.setAttribute('id', `${type}-restore-confirm-${index}`);
+        restoreBtn.textContent = 'Restore';
+        restoreBtn.addEventListener('click', () => {
+            performPlannerMutation(index, () => planner.setStatus(
+                type, index, TherapyPlanner.STATUS_PLANNED
+            ));
+        });
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.classList.add('btn', 'btn-sm', 'btn-outline-secondary');
+        cancelBtn.setAttribute('type', 'button');
+        cancelBtn.setAttribute('id', `${type}-restore-cancel-${index}`);
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', () => {
+            clearMsgs(index);
+            _pendingAction = null;
+            queueFocus(`${type}-restore-planned-${index}`);
+            buildPlan();
+        });
+
+        buttons.appendChild(restoreBtn);
+        buttons.appendChild(cancelBtn);
+        actionCol.appendChild(badge);
+        actionCol.appendChild(prompt);
+        actionCol.appendChild(buttons);
+    }
+
+    function buildActionCol(item, index, actionCol, dateCol) {
+        const isPending = _pendingAction && _pendingAction.index === index;
+
+        if (item.status === TherapyPlanner.STATUS_COMPLETED) {
+            actionCol.classList.add('d-flex', 'flex-column', 'gap-1');
+            if (isPending && _pendingAction.kind === 'restore') {
+                buildRestoreConfirmation(index, actionCol);
+                return;
+            }
+
+            const badge = document.createElement('span');
+            badge.classList.add('badge', 'bg-success', 'align-self-start');
+            badge.setAttribute('id', `${type}-completed-badge-${index}`);
+            badge.textContent = '✓ Completed';
+
+            const restoreBtn = document.createElement('button');
+            restoreBtn.classList.add('btn', 'btn-sm', 'btn-outline-secondary');
+            restoreBtn.setAttribute('type', 'button');
+            restoreBtn.setAttribute('id', `${type}-restore-planned-${index}`);
+            restoreBtn.setAttribute('aria-label', `Restore session ${index + 1} for the ${eyeLabel()} as planned`);
+            restoreBtn.textContent = 'Restore as planned';
+            restoreBtn.addEventListener('click', () => {
+                _pendingAction = { kind: 'restore', index };
+                queueFocus(`${type}-restore-confirm-${index}`);
+                buildPlan();
+            });
+
+            actionCol.appendChild(badge);
+            actionCol.appendChild(restoreBtn);
+            return;
+        }
+
+        if (isPending && _pendingAction.kind === 'complete') {
+            actionCol.classList.add('d-flex', 'flex-column', 'gap-1');
+            buildCompletionForm(item, index, actionCol, dateCol);
+            return;
+        }
+
+        const button = document.createElement('button');
+        button.classList.add('btn', 'btn-sm', 'btn-outline-success');
+        button.setAttribute('type', 'button');
+        button.setAttribute('id', `${type}-mark-completed-${index}`);
+        button.setAttribute('aria-label', `Mark session ${index + 1} for the ${eyeLabel()} as completed`);
+        button.textContent = 'Mark as completed';
+        button.addEventListener('click', () => {
+            _pendingAction = { kind: 'complete', index };
+            queueFocus(`${type}-complete-date-${index}`);
+            buildPlan();
+        });
+        actionCol.appendChild(button);
+    }
+
+    function buildPlan() {
+        while (card.firstChild) card.removeChild(card.firstChild);
+        while (container.firstChild) container.removeChild(container.firstChild);
+
+        const plan = planner.getPlanByEye(type);
+        clearPendingActionIfStale(plan);
+
+        buildHeader();
+
+        const body = document.createElement('div');
+        body.classList.add('card-body');
+        card.appendChild(body);
+        body.appendChild(container);
+        buildGridHeader();
+
+        plan.forEach((item, index) => {
+            const row = document.createElement('div');
+            row.classList.add('row', 'align-items-center', 'mt-2');
+            row.setAttribute('id', `${type}-row-${index}`);
+
+            const isCompleting = _pendingAction
+                && _pendingAction.kind === 'complete'
+                && _pendingAction.index === index;
+
+            const indexCol = document.createElement('div');
+            indexCol.classList.add(INDEXCOLWIDTH);
+            indexCol.textContent = String(index + 1);
+
+            const actionCol = document.createElement('div');
+            actionCol.classList.add(ACTIONCOLWIDTH);
+
+            const minWeeksCol = buildMinWeeksControl(item, index);
+            const suggestedDateCol = buildSuggestedDateCol(item, index);
+
+            const dateCol = document.createElement('div');
+            dateCol.classList.add(DATECOLWIDTH);
+            // One-date-input invariant: ordinary input is absent while completing.
+            if (!isCompleting) {
+                dateCol.appendChild(buildDateInput(item, index));
+            }
+
+            buildActionCol(item, index, actionCol, dateCol);
+
+            appendMessage(dateCol, `${type}-error-${index}`, getMsg(index, 'error'), 'error');
+            appendMessage(dateCol, `${type}-warning-${index}`, getMsg(index, 'warning'), 'warning');
+
+            row.appendChild(indexCol);
+            row.appendChild(actionCol);
+            row.appendChild(minWeeksCol);
+            row.appendChild(suggestedDateCol);
+            row.appendChild(dateCol);
+            container.appendChild(row);
+        });
+
+        applyQueuedFocus();
+    }
+
+    planner.addListener(onPlanUpdate);
+    buildPlan();
     return card;
 }
 
-if (typeof module !== 'undefined') {
+if (typeof module !== 'undefined' && module.exports) {
     module.exports = createTherapyListComponent;
 }
