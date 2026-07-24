@@ -2900,3 +2900,164 @@ test('guidance-O: sameEyeEarliestDate remains distinct from today-based hard low
   const right1 = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1];
   assert.equal(fmt(right1.earliestSameEyeDate), '2026-01-29', 'appointment.earliestSameEyeDate');
 });
+
+// ─── 12. UI guidance tests ───────────────────────────────────────────────────
+
+function uiCollectText(el) {
+  if (!el) return '';
+  if (typeof el.textContent === 'string' && el.children.length === 0) return el.textContent;
+  let out = typeof el.textContent === 'string' ? el.textContent : '';
+  for (const child of el.children) {
+    if (child && typeof child === 'object') out += uiCollectText(child);
+  }
+  return out;
+}
+
+function uiFindText(el, text) {
+  if (!el) return false;
+  const tc = String(typeof el.textContent === 'string' ? el.textContent : '');
+  if (tc.includes(text)) return true;
+  if (!Array.isArray(el.children)) return false;
+  for (const child of el.children) {
+    if (child && typeof child === 'object' && uiFindText(child, text)) return true;
+  }
+  return false;
+}
+
+function uiFindByAttr(el, attr) {
+  if (!el) return null;
+  if (el.getAttribute && el.getAttribute(attr)) return el;
+  for (const child of (el.children || [])) {
+    const found = uiFindByAttr(child, attr);
+    if (found) return found;
+  }
+  return null;
+}
+
+test('guidance-UI-1: header column says "Suggested earliest"', () => {
+  withMockDom((createTherapyListComponent, mockDoc) => {
+    const planner = defaultPlanner();
+    const component = createTherapyListComponent('testComp', TherapyPlanner.RIGHTEYE, planner);
+    mockDoc.root.appendChild(component);
+    assert.ok(uiFindText(component, 'Suggested earliest'),
+      'header must contain "Suggested earliest"');
+    assert.ok(!uiFindText(component, 'Min Date'),
+      'header must not contain legacy "Min Date"');
+  });
+});
+
+test('guidance-UI-2: heading explains that the suggestion preserves the other-eye schedule', () => {
+  withMockDom((createTherapyListComponent, mockDoc) => {
+    const planner = defaultPlanner();
+    const component = createTherapyListComponent('testComp', TherapyPlanner.RIGHTEYE, planner);
+    mockDoc.root.appendChild(component);
+    const headerContainer = component.findById(`header-container-${TherapyPlanner.RIGHTEYE}`);
+    assert.ok(headerContainer, 'header container must exist');
+    const column = uiFindByAttr(headerContainer, 'title');
+    assert.ok(column, 'suggested-earliest column must have a title');
+    assert.equal(
+      column.getAttribute('title'),
+      'Earliest clinic date that keeps the currently scheduled appointments in the other eye unchanged.'
+    );
+    assert.equal(
+      column.getAttribute('aria-label'),
+      'Suggested earliest: earliest clinic date that keeps the currently scheduled appointments in the other eye unchanged.'
+    );
+  });
+});
+
+test('guidance-UI-3: planned row[1] min attribute uses hardLowerBoundDate', () => {
+  withMockDom((createTherapyListComponent, mockDoc) => {
+    const planner = defaultPlanner();
+    const component = createTherapyListComponent('testComp', TherapyPlanner.RIGHTEYE, planner);
+    mockDoc.root.appendChild(component);
+    const input1 = component.findById(`${TherapyPlanner.RIGHTEYE}-date-1`);
+    assert.ok(input1, 'date input for session 1 must exist');
+    const minAttr = input1.getAttribute('min');
+    const guidance = planner.getDateGuidanceFor(TherapyPlanner.RIGHTEYE, 1);
+    assert.ok(guidance.success && guidance.editable);
+    const hld = guidance.hardLowerBoundDate;
+    const expectedMin = `${hld.getFullYear()}-${String(hld.getMonth() + 1).padStart(2, '0')}-${String(hld.getDate()).padStart(2, '0')}`;
+    assert.equal(minAttr, expectedMin,
+      `min must be hardLowerBoundDate ${expectedMin}, got ${minAttr}`);
+  });
+});
+
+test('guidance-UI-4: planned row[0] min attribute uses hardLowerBoundDate (today for index 0)', () => {
+  withMockDom((createTherapyListComponent, mockDoc) => {
+    const planner = defaultPlanner();
+    const component = createTherapyListComponent('testComp', TherapyPlanner.RIGHTEYE, planner);
+    mockDoc.root.appendChild(component);
+    const input0 = component.findById(`${TherapyPlanner.RIGHTEYE}-date-0`);
+    assert.ok(input0, 'date input for session 0 must exist');
+    const minAttr = input0.getAttribute('min');
+    const guidance = planner.getDateGuidanceFor(TherapyPlanner.RIGHTEYE, 0);
+    assert.ok(guidance.success && guidance.editable);
+    const hld = guidance.hardLowerBoundDate;
+    const expectedMin = `${hld.getFullYear()}-${String(hld.getMonth() + 1).padStart(2, '0')}-${String(hld.getDate()).padStart(2, '0')}`;
+    assert.equal(minAttr, expectedMin,
+      `min for session 0 must equal hardLowerBoundDate (today)`);
+  });
+});
+
+test('guidance-UI-5: completed row has no min attribute on date input', () => {
+  withMockDom((createTherapyListComponent, mockDoc) => {
+    const planner = defaultPlanner();
+    planner.setStatus(TherapyPlanner.RIGHTEYE, 0, TherapyPlanner.STATUS_COMPLETED, d(2026, 0, 6));
+    const component = createTherapyListComponent('testComp', TherapyPlanner.RIGHTEYE, planner);
+    mockDoc.root.appendChild(component);
+    const input0 = component.findById(`${TherapyPlanner.RIGHTEYE}-date-0`);
+    assert.ok(input0, 'date input for completed session must exist');
+    assert.ok(!input0.getAttribute('min'), 'completed session must not have min attribute');
+    assert.ok(input0.getAttribute('max'), 'completed session must have max attribute');
+  });
+});
+
+test('guidance-UI-6: left component redraws with updated suggestion after right-eye input change', () => {
+  withMockDom((createTherapyListComponent, mockDoc) => {
+    function expectedUiDate(date) {
+      return date.toLocaleDateString('it-IT', {
+        weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+      });
+    }
+
+    const planner = defaultPlanner();
+    const rightComponent = createTherapyListComponent('card-right', TherapyPlanner.RIGHTEYE, planner);
+    const leftComponent  = createTherapyListComponent('card-left',  TherapyPlanner.LEFTEYE,  planner);
+    mockDoc.root.appendChild(rightComponent);
+    mockDoc.root.appendChild(leftComponent);
+
+    // Initial state: left[0] suggested = Jan20 (right[0]=Jan6, Jan6+14=Jan20).
+    const oldSuggestion = expectedUiDate(d(2026, 0, 20));
+    assert.ok(uiFindText(leftComponent, oldSuggestion),
+      'left component must initially display the Jan 20 suggestion');
+
+    // Trigger right[0] input change to Jan13 via the real event handler.
+    const rightInput = rightComponent.findById(`${TherapyPlanner.RIGHTEYE}-date-0`);
+    assert.ok(rightInput, 'right[0] date input must exist');
+    rightInput.value = '2026-01-13';
+    rightInput.eventListeners['change'][0]({ target: rightInput });
+
+    // After redraw: left[0] suggested must be Jan27 (Jan13+14=Jan27).
+    const newSuggestion = expectedUiDate(d(2026, 0, 27));
+    assert.ok(uiFindText(leftComponent, newSuggestion),
+      'left component must redraw and display the Jan 27 suggestion');
+    assert.ok(!uiFindText(leftComponent, oldSuggestion),
+      'stale Jan 20 suggestion must not remain');
+  });
+});
+
+test('guidance-UI-7: sameEyeEarliestDate is not used as input min when it is earlier than today', () => {
+  withMockDom((createTherapyListComponent, mockDoc) => {
+    const today = d(2026, 2, 3);
+    const planner = new TherapyPlanner({}, { today });
+    planner.setStatus(TherapyPlanner.RIGHTEYE, 0, TherapyPlanner.STATUS_COMPLETED, d(2026, 0, 1));
+    const component = createTherapyListComponent('testComp', TherapyPlanner.RIGHTEYE, planner);
+    mockDoc.root.appendChild(component);
+    const input1 = component.findById(`${TherapyPlanner.RIGHTEYE}-date-1`);
+    assert.ok(input1, 'date input for session 1 must exist');
+    const minAttr = input1.getAttribute('min');
+    assert.notEqual(minAttr, '2026-01-29', 'min must not be the past sameEyeEarliestDate');
+    assert.equal(minAttr, '2026-03-03', 'min must be hardLowerBoundDate (today=Mar3)');
+  });
+});

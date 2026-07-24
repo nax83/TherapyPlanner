@@ -203,7 +203,7 @@ function createTherapyListComponent(componentId, type, planner) {
             }
             row.appendChild(minWeeksCol);
 
-            // ── Min Date column ──────────────────────────────────────────────
+            // ── Suggested Earliest column ────────────────────────────────────
             const minDateCol = document.createElement('div');
             minDateCol.classList.add(MINIMUMDATECOL, 'd-flex', 'justify-content-center');
             if (isCompleted) {
@@ -212,11 +212,21 @@ function createTherapyListComponent(componentId, type, planner) {
                 badge.textContent = 'Completed';
                 minDateCol.appendChild(badge);
             } else if (index === 0) {
-                minDateCol.textContent = '-';
-            } else if (item.earliestSameEyeDate instanceof Date) {
-                minDateCol.textContent = item.earliestSameEyeDate.toLocaleDateString('it-IT', {
-                    weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
-                });
+                const guidance0 = planner.getDateGuidanceFor(type, index);
+                if (guidance0.success && guidance0.editable && guidance0.suggestedEarliestDate instanceof Date) {
+                    minDateCol.textContent = guidance0.suggestedEarliestDate.toLocaleDateString('it-IT', {
+                        weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+                    });
+                } else {
+                    minDateCol.textContent = '-';
+                }
+            } else {
+                const guidance = planner.getDateGuidanceFor(type, index);
+                if (guidance.success && guidance.editable && guidance.suggestedEarliestDate instanceof Date) {
+                    minDateCol.textContent = guidance.suggestedEarliestDate.toLocaleDateString('it-IT', {
+                        weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+                    });
+                }
             }
             row.appendChild(minDateCol);
 
@@ -276,10 +286,11 @@ function createTherapyListComponent(componentId, type, planner) {
 
                 if (isCompleted) {
                     datePickerInput.setAttribute('max', formatDate(planner.today));
-                } else if (index === 0) {
-                    datePickerInput.setAttribute('min', formatDate(planner.today));
-                } else if (item.earliestSameEyeDate instanceof Date) {
-                    datePickerInput.setAttribute('min', formatDate(item.earliestSameEyeDate));
+                } else {
+                    const guidanceForMin = planner.getDateGuidanceFor(type, index);
+                    if (guidanceForMin.success && guidanceForMin.editable && guidanceForMin.hardLowerBoundDate instanceof Date) {
+                        datePickerInput.setAttribute('min', formatDate(guidanceForMin.hardLowerBoundDate));
+                    }
                 }
 
                 const valueToSet = item.plannedDate instanceof Date ? formatDate(item.plannedDate) : '';
@@ -360,7 +371,9 @@ function createTherapyListComponent(componentId, type, planner) {
 
         const midDateCol = document.createElement('div');
         midDateCol.classList.add(MINIMUMDATECOL, 'd-flex', 'justify-content-center');
-        midDateCol.textContent = 'Min Date';
+        midDateCol.textContent = 'Suggested earliest';
+        midDateCol.setAttribute('title', 'Earliest clinic date that keeps the currently scheduled appointments in the other eye unchanged.');
+        midDateCol.setAttribute('aria-label', 'Suggested earliest: earliest clinic date that keeps the currently scheduled appointments in the other eye unchanged.');
         headerRow.appendChild(midDateCol);
 
         const availableDatesCol = document.createElement('div');
