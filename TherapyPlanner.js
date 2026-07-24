@@ -569,6 +569,107 @@ class TherapyPlanner {
   addListener(listener)  { this.listeners.push(listener); }
   notifyListeners()      { this.listeners.forEach(l => l()); }
 
+  /**
+   * Pure read-only date guidance for a planned appointment.
+   *
+   * Returns three distinct concepts:
+   *
+   *   sameEyeEarliestDate
+   *       Pure same-eye interval result.
+   *       For index 0: today.
+   *       For index > 0: previousSameEye.plannedDate + minWeeks * 7.
+   *       May be earlier than today.
+   *
+   *   hardLowerBoundDate
+   *       Dates before this are always invalid.
+   *       = max(today, sameEyeEarliestDate)
+   *       Does NOT account for clinic weekdays or opposite-eye appointments.
+   *       Dates between hardLowerBoundDate and suggestedEarliestDate may still
+   *       be accepted by the engine when the cascade can move opposite-eye
+   *       appointments.
+   *
+   *   suggestedEarliestDate
+   *       First clinic date >= hardLowerBoundDate satisfying the configured
+   *       inter-eye gap against every current opposite-eye appointment
+   *       (planned/confirmed/generated/completed) without rescheduling any.
+   *       Guidance only — not a new validation rule.
+   *
+   * This method:
+   *   - does NOT modify any appointment;
+   *   - does NOT emit listener notifications;
+   *   - returns new Date instances (defensive copies);
+   *   - is deterministic and safe to call repeatedly;
+   *   - requires index to be a non-negative integer.
+   *
+   * @param {string} type   TherapyPlanner.RIGHTEYE | TherapyPlanner.LEFTEYE
+   * @param {number} index  0-based integer index within the eye's plan
+   * @returns {object}
+   */
+  getDateGuidanceFor(type, index) {
+    const FAILURE_INVALID = {
+      success: false,
+      reason: 'INVALID_INDEX',
+      message: 'Invalid session index.',
+      hardLowerBoundDate: null,
+      sameEyeEarliestDate: null,
+      suggestedEarliestDate: null,
+    };
+
+    const plan = this.schedule[type];
+    if (!plan || !Number.isInteger(index) || index < 0 || index >= plan.length) {
+      return FAILURE_INVALID;
+    }
+
+    const session = plan[index];
+
+    if (session.status === TherapyPlanner.STATUS_COMPLETED) {
+      return {
+        success: true,
+        editable: false,
+        hardLowerBoundDate: null,
+        sameEyeEarliestDate: null,
+        suggestedEarliestDate: null,
+        interEyeGapDays: this.interEyeGapDays,
+      };
+    }
+
+    // Step 1 — sameEyeEarliestDate: pure same-eye interval (may be before today)
+    let sameEyeEarliestDate = normalizeDate(this.today);
+    if (index > 0) {
+      const prev = plan[index - 1];
+      if (prev.plannedDate instanceof Date) {
+        sameEyeEarliestDate = addCalendarDays(prev.plannedDate, session.minWeeks * 7);
+      }
+    }
+
+    // Step 2 — hardLowerBoundDate: unconditional minimum = max(today, sameEyeEarliestDate)
+    let hardLowerBoundDate = normalizeDate(this.today);
+    if (sameEyeEarliestDate.getTime() > hardLowerBoundDate.getTime()) {
+      hardLowerBoundDate = normalizeDate(sameEyeEarliestDate);
+    }
+
+    // Step 3 — suggestedEarliestDate: first clinic date >= hardLowerBoundDate that
+    // preserves every current opposite-eye appointment without rescheduling.
+    const otherEye = this._otherEye(type);
+    const otherEyeDates = [];
+    for (const appt of this.schedule[otherEye]) {
+      if (appt.plannedDate instanceof Date) {
+        otherEyeDates.push(normalizeDate(appt.plannedDate));
+      }
+    }
+
+    const suggestedEarliestDate = this._findValidDate(hardLowerBoundDate, otherEyeDates);
+
+    return {
+      success: true,
+      editable: true,
+      sameEyeEarliestDate:  new Date(sameEyeEarliestDate.getTime()),
+      hardLowerBoundDate:   new Date(hardLowerBoundDate.getTime()),
+      suggestedEarliestDate: new Date(suggestedEarliestDate.getTime()),
+      interEyeGapDays: this.interEyeGapDays,
+    };
+  }
+
   // ── mutations ────────────────────────────────────────────────────────────────
 
   /**

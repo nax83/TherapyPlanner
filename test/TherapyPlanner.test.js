@@ -2688,3 +2688,376 @@ test('spec-v4-test-ui-hist: real UI historical correction through date input cha
     assert.equal(planner.validateSchedule().valid, true);
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// guidance-A–O: getDateGuidanceFor() engine tests
+// ════════════════════════════════════════════════════════════════════════════
+
+test('guidance-A: left[0] suggestedEarliestDate = Jan 20 (right[0] + 14 days)', () => {
+  const planner = defaultPlanner();
+  const g = planner.getDateGuidanceFor(TherapyPlanner.LEFTEYE, 0);
+  assert.equal(g.success, true);
+  assert.equal(fmt(g.hardLowerBoundDate),    '2026-01-06', 'hardLowerBound');
+  assert.equal(fmt(g.sameEyeEarliestDate),   '2026-01-06', 'sameEyeEarliest (index 0 = today)');
+  assert.equal(fmt(g.suggestedEarliestDate), '2026-01-20', 'suggestedEarliest');
+  assert.equal(g.interEyeGapDays, 14);
+});
+
+test('guidance-B: right[0] suggestedEarliestDate = Jan 6 (left[0]=Jan20 is >=14 days later)', () => {
+  const planner = defaultPlanner();
+  const g = planner.getDateGuidanceFor(TherapyPlanner.RIGHTEYE, 0);
+  assert.equal(g.success, true);
+  assert.equal(fmt(g.hardLowerBoundDate),    '2026-01-06');
+  assert.equal(fmt(g.suggestedEarliestDate), '2026-01-06');
+});
+
+test('guidance-C: right[1] suggestedEarliestDate = Feb 11 (same-eye floor Feb3, left[0]=Jan28)', () => {
+  const planner = defaultPlanner();
+  assert.equal(planner.updateDateFor(TherapyPlanner.LEFTEYE, 0, d(2026, 0, 28)).success, true);
+  const g = planner.getDateGuidanceFor(TherapyPlanner.RIGHTEYE, 1);
+  assert.equal(g.success, true);
+  assert.equal(fmt(g.sameEyeEarliestDate),   '2026-02-03', 'same-eye floor Feb3');
+  assert.equal(fmt(g.hardLowerBoundDate),    '2026-02-03', 'hardLowerBound Feb3');
+  assert.equal(fmt(g.suggestedEarliestDate), '2026-02-11', 'suggested Feb11');
+});
+
+test('guidance-D: 13 days conflict, 14 days ok — verified via guidance boundary', () => {
+  // gap=7: candidate Jan6, |Jan6-Jan6|=0<7 conflict; nextClinic(Jan6+7=Jan13 Tue) diff=7 ok.
+  const planner7 = new TherapyPlanner({ interEyeGapDays: 7 }, { today: TODAY });
+  const gL = planner7.getDateGuidanceFor(TherapyPlanner.LEFTEYE, 0);
+  assert.equal(gL.success, true);
+  assert.equal(fmt(gL.suggestedEarliestDate), '2026-01-13', 'gap=7: Jan13 exactly accepted');
+  assert.equal(testCalDiff(d(2026, 0, 6), gL.suggestedEarliestDate), 7, 'diff exactly 7');
+  // gap=14 default: right[0]=Jan6, left[0]=Jan20; |Jan6-Jan20|=14 ok for right candidate.
+  const plannerD = defaultPlanner();
+  const gR = plannerD.getDateGuidanceFor(TherapyPlanner.RIGHTEYE, 0);
+  assert.equal(fmt(gR.suggestedEarliestDate), '2026-01-06', 'exactly 14 days away: not rejected');
+  // left[0]: |Jan6-Jan6|=0<14 conflict; nextClinic(Jan6+14=Jan20 Tue) diff=14 ok.
+  const gL2 = plannerD.getDateGuidanceFor(TherapyPlanner.LEFTEYE, 0);
+  assert.equal(fmt(gL2.suggestedEarliestDate), '2026-01-20', '0 days: forced to Jan20');
+});
+
+test('guidance-E: custom gap=10, non-clinic boundary pushed to next clinic day', () => {
+  const planner = new TherapyPlanner(
+    { validAppointmentWeekdays: [2, 3, 4], interEyeGapDays: 10 }, { today: TODAY }
+  );
+  const g = planner.getDateGuidanceFor(TherapyPlanner.LEFTEYE, 0);
+  assert.equal(g.success, true);
+  assert.equal(g.interEyeGapDays, 10);
+  // Jan6+10=Jan16(Fri) not clinic; nextClinic=Jan20(Tue)
+  assert.equal(fmt(g.suggestedEarliestDate), '2026-01-20', 'gap=10: pushed to Jan20');
+  assert.equal(fmt(g.hardLowerBoundDate), '2026-01-06');
+});
+
+test('guidance-F: all opposite-eye appointments checked, first candidate clears one but conflicts another', () => {
+  const planner = defaultPlanner();
+  assert.equal(planner.updateDateFor(TherapyPlanner.RIGHTEYE, 1, d(2026, 1, 17)).success, true);
+  const g = planner.getDateGuidanceFor(TherapyPlanner.LEFTEYE, 1);
+  assert.equal(g.success, true);
+  assert.equal(fmt(g.hardLowerBoundDate),    '2026-02-17');
+  // |Feb17-Feb17|=0 conflict; nextClinic(Feb17+14)=Mar3(Tue)
+  assert.equal(fmt(g.suggestedEarliestDate), '2026-03-03');
+});
+
+test('guidance-G: completed opposite-eye appointment included in guidance', () => {
+  const planner = defaultPlanner();
+  assert.equal(planner.setStatus(TherapyPlanner.RIGHTEYE, 0, TherapyPlanner.STATUS_COMPLETED, d(2026, 0, 6)).success, true);
+  const g = planner.getDateGuidanceFor(TherapyPlanner.LEFTEYE, 0);
+  assert.equal(g.success, true);
+  assert.ok(testCalDiff(d(2026, 0, 6), g.suggestedEarliestDate) >= 14,
+    `suggested (${fmt(g.suggestedEarliestDate)}) must be >=14 days from completed right[0]`);
+});
+
+test('guidance-H: getDateGuidanceFor does not modify planner state', () => {
+  const planner = defaultPlanner();
+  const snap = {};
+  for (const eye of [TherapyPlanner.RIGHTEYE, TherapyPlanner.LEFTEYE]) {
+    snap[eye] = planner.getPlanByEye(eye).map(a => ({
+      plannedDate: a.plannedDate instanceof Date ? a.plannedDate.getTime() : null,
+      status: a.status, dateOrigin: a.dateOrigin, minWeeks: a.minWeeks,
+    }));
+  }
+  let notified = false;
+  planner.addListener(() => { notified = true; });
+  const g1 = planner.getDateGuidanceFor(TherapyPlanner.LEFTEYE, 0);
+  const g2 = planner.getDateGuidanceFor(TherapyPlanner.LEFTEYE, 0);
+  planner.getDateGuidanceFor(TherapyPlanner.RIGHTEYE, 1);
+  planner.getDateGuidanceFor(TherapyPlanner.LEFTEYE, 2);
+  assert.equal(notified, false, 'no listener notified');
+  assert.equal(planner.validateSchedule().valid, true);
+  for (const eye of [TherapyPlanner.RIGHTEYE, TherapyPlanner.LEFTEYE]) {
+    const plan = planner.getPlanByEye(eye);
+    assert.equal(plan.length, snap[eye].length);
+    for (let i = 0; i < plan.length; i++) {
+      const a = plan[i], s = snap[eye][i];
+      assert.equal(a.plannedDate instanceof Date ? a.plannedDate.getTime() : null, s.plannedDate);
+      assert.equal(a.status, s.status);
+      assert.equal(a.dateOrigin, s.dateOrigin);
+      assert.equal(a.minWeeks, s.minWeeks);
+    }
+  }
+  assert.equal(fmt(g1.suggestedEarliestDate), fmt(g2.suggestedEarliestDate), 'deterministic');
+  assert.equal(fmt(g1.hardLowerBoundDate), fmt(g2.hardLowerBoundDate));
+});
+
+test('guidance-I: mutating returned dates does not affect planner state', () => {
+  const planner = defaultPlanner();
+  const g = planner.getDateGuidanceFor(TherapyPlanner.LEFTEYE, 0);
+  const origSuggested = fmt(g.suggestedEarliestDate);
+  const origHard      = fmt(g.hardLowerBoundDate);
+  g.suggestedEarliestDate.setFullYear(2099);
+  g.hardLowerBoundDate.setFullYear(2099);
+  const g2 = planner.getDateGuidanceFor(TherapyPlanner.LEFTEYE, 0);
+  assert.equal(fmt(g2.suggestedEarliestDate), origSuggested);
+  assert.equal(fmt(g2.hardLowerBoundDate), origHard);
+  assert.equal(fmt(planner.getPlanByEye(TherapyPlanner.LEFTEYE)[0].plannedDate), '2026-01-20');
+});
+
+test('guidance-J: structured failure for invalid eye, non-integer and out-of-range index', () => {
+  const planner = defaultPlanner();
+  let notified = false;
+  planner.addListener(() => { notified = true; });
+
+  const cases = [
+    ['INVALIDEYE', 0],
+    [TherapyPlanner.RIGHTEYE, -1],
+    [TherapyPlanner.LEFTEYE, 999],
+    [TherapyPlanner.RIGHTEYE, undefined],
+    [TherapyPlanner.RIGHTEYE, NaN],
+    [TherapyPlanner.RIGHTEYE, 0.5],
+    [TherapyPlanner.RIGHTEYE, '0'],
+  ];
+
+  for (const [type, idx] of cases) {
+    const result = planner.getDateGuidanceFor(type, idx);
+    assert.equal(result.success, false,          'success false for ' + String(idx));
+    assert.equal(result.reason, 'INVALID_INDEX', 'reason for ' + String(idx));
+    assert.equal(result.hardLowerBoundDate, null);
+    assert.equal(result.sameEyeEarliestDate, null);
+    assert.equal(result.suggestedEarliestDate, null);
+  }
+  assert.equal(notified, false, 'no listener notified');
+  assert.equal(planner.validateSchedule().valid, true);
+});
+
+test('guidance-K: completed appointment returns editable=false, all dates null', () => {
+  const planner = defaultPlanner();
+  assert.equal(planner.setStatus(TherapyPlanner.RIGHTEYE, 0, TherapyPlanner.STATUS_COMPLETED, d(2026, 0, 6)).success, true);
+  const g = planner.getDateGuidanceFor(TherapyPlanner.RIGHTEYE, 0);
+  assert.equal(g.success, true);
+  assert.equal(g.editable, false);
+  assert.equal(g.hardLowerBoundDate, null);
+  assert.equal(g.sameEyeEarliestDate, null);
+  assert.equal(g.suggestedEarliestDate, null);
+  assert.equal(g.interEyeGapDays, 14);
+  assert.equal(planner.validateSchedule().valid, true);
+});
+
+test('guidance-L: spring DST boundary — opposite-eye Mar 24, expected Apr 7', () => {
+  const today = d(2026, 2, 10);
+  const planner = new TherapyPlanner({}, { today });
+  assert.equal(fmt(planner.getPlanByEye(TherapyPlanner.LEFTEYE)[0].plannedDate), '2026-03-24');
+  const g = planner.getDateGuidanceFor(TherapyPlanner.RIGHTEYE, 1);
+  assert.equal(g.success, true);
+  assert.equal(fmt(g.suggestedEarliestDate), '2026-04-07', 'spring DST: Apr 7');
+  assert.equal(testCalDiff(d(2026, 2, 24), g.suggestedEarliestDate), 14);
+});
+
+test('guidance-M: autumn DST boundary — crossing October 2026 transition', () => {
+  const today = d(2026, 9, 1);
+  const planner = new TherapyPlanner({}, { today });
+  assert.equal(planner.updateDateFor(TherapyPlanner.RIGHTEYE, 0, d(2026, 9, 13)).success, true);
+  assert.equal(planner.updateDateFor(TherapyPlanner.LEFTEYE,  0, d(2026, 9, 27)).success, true);
+  const g = planner.getDateGuidanceFor(TherapyPlanner.LEFTEYE, 1);
+  assert.equal(g.success, true);
+  assert.equal(fmt(g.suggestedEarliestDate), '2026-11-24', 'autumn DST: Nov 24');
+  assert.ok(testCalDiff(d(2026, 9, 13), g.suggestedEarliestDate) >= 14);
+  assert.ok(testCalDiff(d(2026, 9, 27), g.suggestedEarliestDate) >= 14);
+});
+
+test('guidance-N: updateDateFor still accepts dates before suggestedEarliestDate via cascade', () => {
+  const planner = defaultPlanner();
+  assert.equal(fmt(planner.getDateGuidanceFor(TherapyPlanner.LEFTEYE, 0).suggestedEarliestDate), '2026-01-20');
+  const result = planner.updateDateFor(TherapyPlanner.LEFTEYE, 0, d(2026, 0, 6));
+  assert.equal(result.success, true);
+  assert.equal(fmt(planner.getPlanByEye(TherapyPlanner.LEFTEYE)[0].plannedDate), '2026-01-06');
+  assert.ok(testCalDiff(d(2026, 0, 6), planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].plannedDate) >= 14);
+  assert.equal(planner.validateSchedule().valid, true);
+});
+
+test('guidance-O: sameEyeEarliestDate remains distinct from today-based hard lower bound', () => {
+  // today=Mar3, right[0] completed Jan1, right[1] minWeeks=4.
+  // sameEyeEarliestDate = Jan1+28 = Jan29 (before today).
+  // hardLowerBoundDate  = Mar3 (today, since Jan29 < today).
+  const today = d(2026, 2, 3);
+  const planner = new TherapyPlanner({}, { today });
+  assert.equal(planner.setStatus(TherapyPlanner.RIGHTEYE, 0, TherapyPlanner.STATUS_COMPLETED, d(2026, 0, 1)).success, true);
+  const guidance = planner.getDateGuidanceFor(TherapyPlanner.RIGHTEYE, 1);
+  assert.equal(guidance.success, true);
+  assert.equal(fmt(guidance.sameEyeEarliestDate), '2026-01-29', 'pure same-eye: Jan1+28=Jan29');
+  assert.equal(fmt(guidance.hardLowerBoundDate),  '2026-03-03', 'hard lower bound = today');
+  // stored appointment field must also reflect the same-eye interval
+  const right1 = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1];
+  assert.equal(fmt(right1.earliestSameEyeDate), '2026-01-29', 'appointment.earliestSameEyeDate');
+});
+
+// ─── 12. UI guidance tests ───────────────────────────────────────────────────
+
+function uiCollectText(el) {
+  if (!el) return '';
+  if (typeof el.textContent === 'string' && el.children.length === 0) return el.textContent;
+  let out = typeof el.textContent === 'string' ? el.textContent : '';
+  for (const child of el.children) {
+    if (child && typeof child === 'object') out += uiCollectText(child);
+  }
+  return out;
+}
+
+function uiFindText(el, text) {
+  if (!el) return false;
+  const tc = String(typeof el.textContent === 'string' ? el.textContent : '');
+  if (tc.includes(text)) return true;
+  if (!Array.isArray(el.children)) return false;
+  for (const child of el.children) {
+    if (child && typeof child === 'object' && uiFindText(child, text)) return true;
+  }
+  return false;
+}
+
+function uiFindByAttr(el, attr) {
+  if (!el) return null;
+  if (el.getAttribute && el.getAttribute(attr)) return el;
+  for (const child of (el.children || [])) {
+    const found = uiFindByAttr(child, attr);
+    if (found) return found;
+  }
+  return null;
+}
+
+test('guidance-UI-1: header column says "Suggested earliest"', () => {
+  withMockDom((createTherapyListComponent, mockDoc) => {
+    const planner = defaultPlanner();
+    const component = createTherapyListComponent('testComp', TherapyPlanner.RIGHTEYE, planner);
+    mockDoc.root.appendChild(component);
+    assert.ok(uiFindText(component, 'Suggested earliest'),
+      'header must contain "Suggested earliest"');
+    assert.ok(!uiFindText(component, 'Min Date'),
+      'header must not contain legacy "Min Date"');
+  });
+});
+
+test('guidance-UI-2: heading explains that the suggestion preserves the other-eye schedule', () => {
+  withMockDom((createTherapyListComponent, mockDoc) => {
+    const planner = defaultPlanner();
+    const component = createTherapyListComponent('testComp', TherapyPlanner.RIGHTEYE, planner);
+    mockDoc.root.appendChild(component);
+    const headerContainer = component.findById(`header-container-${TherapyPlanner.RIGHTEYE}`);
+    assert.ok(headerContainer, 'header container must exist');
+    const column = uiFindByAttr(headerContainer, 'title');
+    assert.ok(column, 'suggested-earliest column must have a title');
+    assert.equal(
+      column.getAttribute('title'),
+      'Earliest clinic date that keeps the currently scheduled appointments in the other eye unchanged.'
+    );
+    assert.equal(
+      column.getAttribute('aria-label'),
+      'Suggested earliest: earliest clinic date that keeps the currently scheduled appointments in the other eye unchanged.'
+    );
+  });
+});
+
+test('guidance-UI-3: planned row[1] min attribute uses hardLowerBoundDate', () => {
+  withMockDom((createTherapyListComponent, mockDoc) => {
+    const planner = defaultPlanner();
+    const component = createTherapyListComponent('testComp', TherapyPlanner.RIGHTEYE, planner);
+    mockDoc.root.appendChild(component);
+    const input1 = component.findById(`${TherapyPlanner.RIGHTEYE}-date-1`);
+    assert.ok(input1, 'date input for session 1 must exist');
+    const minAttr = input1.getAttribute('min');
+    const guidance = planner.getDateGuidanceFor(TherapyPlanner.RIGHTEYE, 1);
+    assert.ok(guidance.success && guidance.editable);
+    const hld = guidance.hardLowerBoundDate;
+    const expectedMin = `${hld.getFullYear()}-${String(hld.getMonth() + 1).padStart(2, '0')}-${String(hld.getDate()).padStart(2, '0')}`;
+    assert.equal(minAttr, expectedMin,
+      `min must be hardLowerBoundDate ${expectedMin}, got ${minAttr}`);
+  });
+});
+
+test('guidance-UI-4: planned row[0] min attribute uses hardLowerBoundDate (today for index 0)', () => {
+  withMockDom((createTherapyListComponent, mockDoc) => {
+    const planner = defaultPlanner();
+    const component = createTherapyListComponent('testComp', TherapyPlanner.RIGHTEYE, planner);
+    mockDoc.root.appendChild(component);
+    const input0 = component.findById(`${TherapyPlanner.RIGHTEYE}-date-0`);
+    assert.ok(input0, 'date input for session 0 must exist');
+    const minAttr = input0.getAttribute('min');
+    const guidance = planner.getDateGuidanceFor(TherapyPlanner.RIGHTEYE, 0);
+    assert.ok(guidance.success && guidance.editable);
+    const hld = guidance.hardLowerBoundDate;
+    const expectedMin = `${hld.getFullYear()}-${String(hld.getMonth() + 1).padStart(2, '0')}-${String(hld.getDate()).padStart(2, '0')}`;
+    assert.equal(minAttr, expectedMin,
+      `min for session 0 must equal hardLowerBoundDate (today)`);
+  });
+});
+
+test('guidance-UI-5: completed row has no min attribute on date input', () => {
+  withMockDom((createTherapyListComponent, mockDoc) => {
+    const planner = defaultPlanner();
+    planner.setStatus(TherapyPlanner.RIGHTEYE, 0, TherapyPlanner.STATUS_COMPLETED, d(2026, 0, 6));
+    const component = createTherapyListComponent('testComp', TherapyPlanner.RIGHTEYE, planner);
+    mockDoc.root.appendChild(component);
+    const input0 = component.findById(`${TherapyPlanner.RIGHTEYE}-date-0`);
+    assert.ok(input0, 'date input for completed session must exist');
+    assert.ok(!input0.getAttribute('min'), 'completed session must not have min attribute');
+    assert.ok(input0.getAttribute('max'), 'completed session must have max attribute');
+  });
+});
+
+test('guidance-UI-6: left component redraws with updated suggestion after right-eye input change', () => {
+  withMockDom((createTherapyListComponent, mockDoc) => {
+    function expectedUiDate(date) {
+      return date.toLocaleDateString('it-IT', {
+        weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+      });
+    }
+
+    const planner = defaultPlanner();
+    const rightComponent = createTherapyListComponent('card-right', TherapyPlanner.RIGHTEYE, planner);
+    const leftComponent  = createTherapyListComponent('card-left',  TherapyPlanner.LEFTEYE,  planner);
+    mockDoc.root.appendChild(rightComponent);
+    mockDoc.root.appendChild(leftComponent);
+
+    // Initial state: left[0] suggested = Jan20 (right[0]=Jan6, Jan6+14=Jan20).
+    const oldSuggestion = expectedUiDate(d(2026, 0, 20));
+    assert.ok(uiFindText(leftComponent, oldSuggestion),
+      'left component must initially display the Jan 20 suggestion');
+
+    // Trigger right[0] input change to Jan13 via the real event handler.
+    const rightInput = rightComponent.findById(`${TherapyPlanner.RIGHTEYE}-date-0`);
+    assert.ok(rightInput, 'right[0] date input must exist');
+    rightInput.value = '2026-01-13';
+    rightInput.eventListeners['change'][0]({ target: rightInput });
+
+    // After redraw: left[0] suggested must be Jan27 (Jan13+14=Jan27).
+    const newSuggestion = expectedUiDate(d(2026, 0, 27));
+    assert.ok(uiFindText(leftComponent, newSuggestion),
+      'left component must redraw and display the Jan 27 suggestion');
+    assert.ok(!uiFindText(leftComponent, oldSuggestion),
+      'stale Jan 20 suggestion must not remain');
+  });
+});
+
+test('guidance-UI-7: sameEyeEarliestDate is not used as input min when it is earlier than today', () => {
+  withMockDom((createTherapyListComponent, mockDoc) => {
+    const today = d(2026, 2, 3);
+    const planner = new TherapyPlanner({}, { today });
+    planner.setStatus(TherapyPlanner.RIGHTEYE, 0, TherapyPlanner.STATUS_COMPLETED, d(2026, 0, 1));
+    const component = createTherapyListComponent('testComp', TherapyPlanner.RIGHTEYE, planner);
+    mockDoc.root.appendChild(component);
+    const input1 = component.findById(`${TherapyPlanner.RIGHTEYE}-date-1`);
+    assert.ok(input1, 'date input for session 1 must exist');
+    const minAttr = input1.getAttribute('min');
+    assert.notEqual(minAttr, '2026-01-29', 'min must not be the past sameEyeEarliestDate');
+    assert.equal(minAttr, '2026-03-03', 'min must be hardLowerBoundDate (today=Mar3)');
+  });
+});
