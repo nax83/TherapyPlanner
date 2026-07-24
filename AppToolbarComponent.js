@@ -3,6 +3,7 @@ function createAppToolbarComponent(options) {
     const title = typeof toolbarOptions.title === 'string' && toolbarOptions.title.trim()
         ? toolbarOptions.title.trim()
         : 'TherapyPlanner';
+    const i18n = toolbarOptions.i18n || null;
     const actionElements = Array.isArray(toolbarOptions.actionElements)
         ? toolbarOptions.actionElements
         : [];
@@ -21,8 +22,14 @@ function createAppToolbarComponent(options) {
 
     const actions = document.createElement('div');
     actions.setAttribute('id', 'app-toolbar-actions');
-    actions.setAttribute('aria-label', 'Application actions');
     actions.classList.add('app-toolbar-actions');
+
+    function updateTranslations() {
+        const actionsLabel = i18n && typeof i18n.t === 'function'
+            ? i18n.t('toolbar.actionsLabel')
+            : 'Application actions';
+        actions.setAttribute('aria-label', actionsLabel);
+    }
 
     actionElements.forEach(function appendActionElement(actionElement) {
         if (!actionElement || typeof actionElement !== 'object') {
@@ -38,6 +45,10 @@ function createAppToolbarComponent(options) {
 
     root.appendChild(brand);
     root.appendChild(actions);
+    if (i18n && typeof i18n.subscribe === 'function') {
+        i18n.subscribe(updateTranslations);
+    }
+    updateTranslations();
     return root;
 }
 
