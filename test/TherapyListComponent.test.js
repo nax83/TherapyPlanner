@@ -98,6 +98,7 @@ class MockDocument {
     }
     createElement(tagName) { return new MockElement(tagName, this); }
     createTextNode(text) { return new MockTextNode(text); }
+    getElementById(id) { return this.body.findById(id); }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -639,7 +640,7 @@ test('guidance-integration-4: mutation in one eye refreshes suggestion in the ot
     });
 });
 
-test('guidance-integration-5: completion mode hides planned-date guidance suggestion for that row', () => {
+test('guidance-integration-5: completion mode hides ordinary date input and shows exactly one treatment-date input', () => {
     withMockDom(() => {
         const today = new Date(2026, 0, 6);
         const planner = new TherapyPlanner({}, { today });
@@ -688,4 +689,98 @@ test('guidance-integration-6: header says "Suggested earliest" with correct titl
             'Suggested earliest: earliest clinic date that keeps the currently scheduled appointments in the other eye unchanged.'
         );
     });
+});
+
+// ─── Focus handling tests ─────────────────────────────────────────────────────
+
+test('focus-1: opening completion workflow focuses the treatment-date input', () => {
+    const planner = new TherapyPlanner({}, { today: new Date(2026, 0, 6) });
+    const { doc, right } = createMountedComponents(planner);
+    click(right.findById(`${TherapyPlanner.RIGHTEYE}-mark-completed-0`));
+    const treatmentInput = doc.getElementById(`${TherapyPlanner.RIGHTEYE}-complete-date-0`);
+    assert.ok(treatmentInput, 'treatment-date input must exist');
+    assert.equal(doc.activeElement, treatmentInput, 'focus must be on treatment-date input');
+    global.document = undefined;
+});
+
+test('focus-2: cancelling completion focuses the mark-as-completed button', () => {
+    const planner = new TherapyPlanner({}, { today: new Date(2026, 0, 6) });
+    const { doc, right } = createMountedComponents(planner);
+    click(right.findById(`${TherapyPlanner.RIGHTEYE}-mark-completed-0`));
+    click(right.findById(`${TherapyPlanner.RIGHTEYE}-complete-cancel-0`));
+    const markBtn = doc.getElementById(`${TherapyPlanner.RIGHTEYE}-mark-completed-0`);
+    assert.ok(markBtn, 'mark-as-completed button must exist after cancel');
+    assert.equal(doc.activeElement, markBtn, 'focus must return to mark-as-completed button');
+    global.document = undefined;
+});
+
+test('focus-3: opening restore confirmation focuses the restore-confirm button', () => {
+    const planner = new TherapyPlanner({}, { today: new Date(2026, 6, 22) });
+    planner.setStatus(TherapyPlanner.RIGHTEYE, 0, TherapyPlanner.STATUS_COMPLETED, new Date(2026, 6, 20));
+    const { doc, right } = createMountedComponents(planner);
+    click(right.findById(`${TherapyPlanner.RIGHTEYE}-restore-planned-0`));
+    const confirmBtn = doc.getElementById(`${TherapyPlanner.RIGHTEYE}-restore-confirm-0`);
+    assert.ok(confirmBtn, 'restore-confirm button must exist');
+    assert.equal(doc.activeElement, confirmBtn, 'focus must be on restore-confirm button');
+    global.document = undefined;
+});
+
+test('focus-4: cancelling restore focuses the restore-as-planned button', () => {
+    const planner = new TherapyPlanner({}, { today: new Date(2026, 6, 22) });
+    planner.setStatus(TherapyPlanner.RIGHTEYE, 0, TherapyPlanner.STATUS_COMPLETED, new Date(2026, 6, 20));
+    const { doc, right } = createMountedComponents(planner);
+    click(right.findById(`${TherapyPlanner.RIGHTEYE}-restore-planned-0`));
+    click(right.findById(`${TherapyPlanner.RIGHTEYE}-restore-cancel-0`));
+    const restoreBtn = doc.getElementById(`${TherapyPlanner.RIGHTEYE}-restore-planned-0`);
+    assert.ok(restoreBtn, 'restore-as-planned button must exist after cancel');
+    assert.equal(doc.activeElement, restoreBtn, 'focus must return to restore-as-planned button');
+    global.document = undefined;
+});
+
+// ─── Min Weeks tests ──────────────────────────────────────────────────────────
+
+test('minweeks-1: row zero has no Min Weeks select', () => {
+    const planner = new TherapyPlanner({}, { today: new Date(2026, 0, 6) });
+    const { right } = createMountedComponents(planner);
+    assert.equal(right.findById(`${TherapyPlanner.RIGHTEYE}-minweeks-0`), null,
+        'no minweeks select for row zero');
+    const row0 = right.findById(`${TherapyPlanner.RIGHTEYE}-row-0`);
+    assert.ok(row0);
+    assert.equal(flatten(row0).filter((e) => e.tagName === 'SELECT').length, 0,
+        'no select element at all in row zero');
+    global.document = undefined;
+});
+
+test('minweeks-2: row zero shows a dash placeholder in the min-weeks column', () => {
+    const planner = new TherapyPlanner({}, { today: new Date(2026, 0, 6) });
+    const { right } = createMountedComponents(planner);
+    const row0 = right.findById(`${TherapyPlanner.RIGHTEYE}-row-0`);
+    assert.ok(row0);
+    assert.ok(collectByText(row0, '—').length > 0,
+        'row zero must display a dash placeholder for min weeks');
+    global.document = undefined;
+});
+
+test('minweeks-3: later rows have editable Min Weeks selects', () => {
+    const planner = new TherapyPlanner({}, { today: new Date(2026, 0, 6) });
+    const { right } = createMountedComponents(planner);
+    for (let i = 1; i < planner.getPlanByEye(TherapyPlanner.RIGHTEYE).length; i++) {
+        const sel = right.findById(`${TherapyPlanner.RIGHTEYE}-minweeks-${i}`);
+        assert.ok(sel, `minweeks select must exist for row ${i}`);
+        assert.equal(sel.tagName, 'SELECT');
+    }
+    global.document = undefined;
+});
+
+test('minweeks-4: changing a later row Min Weeks invokes updateMinWeeksFor and redraws', () => {
+    const planner = new TherapyPlanner({}, { today: new Date(2026, 0, 6) });
+    const { right, left } = createMountedComponents(planner);
+    const initialRight1Date = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate;
+    changeValue(right.findById(`${TherapyPlanner.RIGHTEYE}-minweeks-1`), '8');
+    assert.equal(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].minWeeks, 8);
+    const newRight1Date = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate;
+    assert.ok(newRight1Date >= initialRight1Date, 'right[1] date must not move earlier after minWeeks increase');
+    assert.ok(right.findById(`${TherapyPlanner.RIGHTEYE}-minweeks-1`), 'minweeks select must still exist after redraw');
+    assert.ok(left.findById(`${TherapyPlanner.LEFTEYE}-row-0`), 'left plan must still render after redraw');
+    global.document = undefined;
 });

@@ -65,10 +65,9 @@ function createTherapyListComponent(cardId, type, planner) {
 
     function applyQueuedFocus() {
         if (!_focusRequestId) return;
-        const target = typeof card.findById === 'function'
-            ? card.findById(_focusRequestId)
-            : null;
+        const id = _focusRequestId;
         _focusRequestId = null;
+        const target = document.getElementById(id);
         if (target && typeof target.focus === 'function') target.focus();
     }
 
@@ -196,6 +195,11 @@ function createTherapyListComponent(cardId, type, planner) {
     function buildMinWeeksControl(item, index) {
         const col = document.createElement('div');
         col.classList.add(MINWEEKSCOLWIDTH);
+
+        if (index === 0) {
+            col.textContent = EM_DASH;
+            return col;
+        }
 
         const select = document.createElement('select');
         select.classList.add('form-select', 'form-select-sm');
