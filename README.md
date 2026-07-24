@@ -365,6 +365,23 @@ TherapyPlanner/
 └── package.json
 ```
 
+## Runtime localisation
+
+TherapyPlanner supports runtime localisation for `English`, `Deutsch`, and `Italiano`.
+The initial UI language is selected from the saved preference first, then from the browser language (`navigator.languages`, then `navigator.language`), and finally falls back to English.
+
+Use the toolbar language selector to switch language without reloading the page.
+The selected locale is persisted locally in `therapyPlanner.preferences.v1` as:
+
+```json
+{
+  "locale": "de"
+}
+```
+
+This preference storage is limited to non-patient UI settings.
+This localisation feature does **not** persist patient names, appointment data, treatment status, or printable document content.
+
 ## License
 
 MIT

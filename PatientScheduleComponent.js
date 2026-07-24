@@ -28,6 +28,8 @@
 'use strict';
 
 function createPatientScheduleComponent(planner, options) {
+  const settings = options && typeof options === 'object' ? options : {};
+  const i18n = settings.i18n || null;
   options = options || {};
 
   // ── Resolve dependencies ───────────────────────────────────────────────────
@@ -48,6 +50,48 @@ function createPatientScheduleComponent(planner, options) {
     throw new Error('PatientSchedule.js must be loaded before PatientScheduleComponent.js');
   }
 
+  const _baseLabels = Object.assign({}, _labels);
+
+  function resolveLabels() {
+    if (!i18n || typeof i18n.t !== 'function') {
+      return _labels;
+    }
+
+    return {
+      launch: i18n.t('patientSchedule.launch'),
+      title: i18n.t('patientSchedule.title'),
+      patientName: i18n.t('patientSchedule.patientName'),
+      generatedOn: i18n.t('patientSchedule.generatedOn'),
+      date: i18n.t('patientSchedule.date'),
+      day: i18n.t('patientSchedule.day'),
+      treatment: i18n.t('patientSchedule.treatment'),
+      rightEye: i18n.t('patientSchedule.rightEye'),
+      leftEye: i18n.t('patientSchedule.leftEye'),
+      print: i18n.t('patientSchedule.print'),
+      close: i18n.t('patientSchedule.close'),
+      empty: i18n.t('patientSchedule.empty'),
+      footer: i18n.t('patientSchedule.footer'),
+    };
+  }
+
+  function formatPatientDateActive(date) {
+    if (i18n && typeof i18n.formatDate === 'function') {
+      return i18n.formatDate(date);
+    }
+
+    return _fmtDate(date);
+  }
+
+  function formatPatientWeekdayActive(date) {
+    if (i18n && typeof i18n.formatWeekday === 'function') {
+      return i18n.formatWeekday(date);
+    }
+
+    return _fmtWeekday(date);
+  }
+
+  _labels = resolveLabels();
+
   // Eye key constants (stable public API values).
   const RIGHTEYE = 'RIGHTEYE';
   const LEFTEYE  = 'LEFTEYE';
@@ -64,7 +108,7 @@ function createPatientScheduleComponent(planner, options) {
   launchBtn.setAttribute('id', 'patient-schedule-launch-btn');
   launchBtn.setAttribute('type', 'button');
   launchBtn.setAttribute('aria-haspopup', 'dialog');
-  launchBtn.textContent = 'Patient appointment list';
+  launchBtn.textContent = _labels.launch || (i18n ? i18n.t('patientSchedule.launch') : 'Patient appointment list');
   launchBtn.classList.add('btn', 'btn-outline-primary', 'patient-schedule-launch', 'no-print');
   root.appendChild(launchBtn);
 
@@ -237,7 +281,7 @@ function createPatientScheduleComponent(planner, options) {
 
   function _setGeneratedOn() {
     const now = new Date();
-    generatedOnP.textContent = _labels.generatedOn + ': ' + _fmtDate(now);
+    generatedOnP.textContent = _labels.generatedOn + ': ' + formatPatientDateActive(now);
   }
 
   function _updatePatientDisplay() {
@@ -270,16 +314,20 @@ function createPatientScheduleComponent(planner, options) {
       const dateTd = document.createElement('td');
       const timeEl = document.createElement('time');
       timeEl.setAttribute('datetime', row.isoDate);
-      timeEl.textContent = _fmtDate(row.date);
+      timeEl.textContent = formatPatientDateActive(row.date);
       dateTd.appendChild(timeEl);
       tr.appendChild(dateTd);
 
       const dayTd = document.createElement('td');
-      dayTd.textContent = _fmtWeekday(row.date);
+      dayTd.textContent = formatPatientWeekdayActive(row.date);
       tr.appendChild(dayTd);
 
       const eyeTd = document.createElement('td');
-      eyeTd.textContent = row.eyeLabel;
+      eyeTd.textContent = row.eyeLabel === _baseLabels.rightEye
+        ? _labels.rightEye
+        : row.eyeLabel === _baseLabels.leftEye
+          ? _labels.leftEye
+          : row.eyeLabel;
       tr.appendChild(eyeTd);
 
       tbody.appendChild(tr);
@@ -470,6 +518,31 @@ function createPatientScheduleComponent(planner, options) {
     _updatePatientDisplay();
     _clearError();
     if (typeof launchBtn.focus === 'function') launchBtn.focus();
+  }
+
+  function _refreshTranslations() {
+    _labels = resolveLabels();
+    launchBtn.textContent = _labels.launch || (i18n ? i18n.t('patientSchedule.launch') : 'Patient appointment list');
+    nameLabel.textContent = _labels.patientName + ':';
+    nameInput.setAttribute('placeholder', _labels.patientName);
+    titleEl.textContent = _labels.title;
+    printBtn.textContent = _labels.print;
+    closeBtn.textContent = _labels.close;
+    _updatePatientDisplay();
+
+    if (!overlay.classList.contains('open')) {
+      return;
+    }
+
+    _setGeneratedOn();
+    _renderRows(_buildList({
+      [TherapyPlanner.RIGHTEYE]: planner.getPlanByEye(TherapyPlanner.RIGHTEYE),
+      [TherapyPlanner.LEFTEYE]: planner.getPlanByEye(TherapyPlanner.LEFTEYE),
+    }));
+  }
+
+  if (i18n && typeof i18n.subscribe === 'function') {
+    i18n.subscribe(_refreshTranslations);
   }
 
   return root;

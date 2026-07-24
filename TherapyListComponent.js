@@ -1,4 +1,6 @@
-function createTherapyListComponent(cardId, type, planner) {
+function createTherapyListComponent(cardId, type, planner, options) {
+    const settings = options && typeof options === 'object' ? options : {};
+    const i18n = settings.i18n || null;
     const INDEXCOLWIDTH    = 'col-1';
     const ACTIONCOLWIDTH   = 'col-2';
     const MINWEEKSCOLWIDTH = 'col-2';
@@ -23,7 +25,62 @@ function createTherapyListComponent(cardId, type, planner) {
     }
 
     function headerLabel() {
-        return type === TherapyPlanner.RIGHTEYE ? 'Right eye' : 'Left eye';
+        return type === TherapyPlanner.RIGHTEYE ? t('therapy.rightEye') : t('therapy.leftEye');
+    }
+
+    function t(key, parameters) {
+        if (i18n && typeof i18n.t === 'function') {
+            return i18n.t(key, parameters);
+        }
+
+        const fallback = {
+            'therapy.rightEye': 'Right eye',
+            'therapy.leftEye': 'Left eye',
+            'therapy.add': 'Add',
+            'therapy.remove': 'Remove',
+            'therapy.action': 'Action',
+            'therapy.minWeeks': 'Min Weeks',
+            'therapy.suggestedEarliest': 'Suggested earliest',
+            'therapy.suggestedEarliestTooltip': 'Earliest clinic date that keeps the currently scheduled appointments in the other eye unchanged.',
+            'therapy.suggestedEarliestAria': 'Suggested earliest: earliest clinic date that keeps the currently scheduled appointments in the other eye unchanged.',
+            'therapy.date': 'Date',
+            'therapy.weeksSuffix': 'weeks',
+            'therapy.markAsCompleted': 'Mark as completed',
+            'therapy.completing': 'Completing...',
+            'therapy.treatmentDate': 'Treatment date',
+            'therapy.confirm': 'Confirm',
+            'therapy.cancel': 'Cancel',
+            'therapy.completed': 'Completed',
+            'therapy.restoreAsPlanned': 'Restore as planned',
+            'therapy.restoreConfirmation': 'Restore this completed treatment as planned?',
+            'therapy.updateAppointmentFallback': 'Unable to update this appointment.',
+            'therapy.updateMinWeeksFallback': 'Unable to update the minimum interval.',
+            'therapy.updateDateFallback': 'Unable to update the date.',
+            'therapy.renderFallback': 'Unable to render this appointment.',
+            'therapy.renderPlannerFallback': 'Unable to render the planner.',
+        };
+
+        return Object.prototype.hasOwnProperty.call(fallback, key) ? fallback[key] : key;
+    }
+
+    function formatDisplayDate(date) {
+        if (i18n && typeof i18n.formatDate === 'function') {
+            return i18n.formatDate(date);
+        }
+
+        return formatDate(date);
+    }
+
+    function translatePlannerFeedback(result, fallbackKey) {
+        if (result && result.reason && i18n && typeof i18n.has === 'function' && i18n.has(`plannerErrors.${result.reason}`)) {
+            return i18n.t(`plannerErrors.${result.reason}`);
+        }
+
+        if (result && result.message) {
+            return result.message;
+        }
+
+        return t(fallbackKey);
     }
 
     function msgKey(index) {
@@ -84,7 +141,7 @@ function createTherapyListComponent(cardId, type, planner) {
         _selfUpdating = false;
 
         if (!result || result.success === false) {
-            setMsg(index, 'error', result && result.message ? result.message : 'Unable to update this appointment.');
+            setMsg(index, 'error', translatePlannerFeedback(result, 'therapy.updateAppointmentFallback'));
             buildPlan();
             return false;
         }
@@ -114,7 +171,7 @@ function createTherapyListComponent(cardId, type, planner) {
         addButton.classList.add('btn', 'btn-sm', 'btn-outline-primary');
         addButton.setAttribute('type', 'button');
         addButton.setAttribute('id', `${type}-add-therapy`);
-        addButton.textContent = 'Add';
+        addButton.textContent = t('therapy.add');
         addButton.addEventListener('click', () => {
             planner.addTherapy(type);
         });
@@ -123,7 +180,7 @@ function createTherapyListComponent(cardId, type, planner) {
         removeButton.classList.add('btn', 'btn-sm', 'btn-outline-danger');
         removeButton.setAttribute('type', 'button');
         removeButton.setAttribute('id', `${type}-remove-therapy`);
-        removeButton.textContent = 'Remove';
+        removeButton.textContent = t('therapy.remove');
         removeButton.addEventListener('click', () => {
             planner.removeTherapy(type);
         });
@@ -150,31 +207,31 @@ function createTherapyListComponent(cardId, type, planner) {
 
         const actionCol = document.createElement('div');
         actionCol.classList.add(ACTIONCOLWIDTH);
-        actionCol.textContent = 'Action';
+        actionCol.textContent = t('therapy.action');
         headerRow.appendChild(actionCol);
 
         const minWeeksCol = document.createElement('div');
         minWeeksCol.classList.add(MINWEEKSCOLWIDTH);
-        minWeeksCol.textContent = 'Min Weeks';
+        minWeeksCol.textContent = t('therapy.minWeeks');
         headerRow.appendChild(minWeeksCol);
 
         // "Suggested earliest" column — exact wording and accessibility from main
         const midDateCol = document.createElement('div');
         midDateCol.classList.add(MINDATECOLWIDTH);
-        midDateCol.textContent = 'Suggested earliest';
+        midDateCol.textContent = t('therapy.suggestedEarliest');
         midDateCol.setAttribute(
             'title',
-            'Earliest clinic date that keeps the currently scheduled appointments in the other eye unchanged.'
+            t('therapy.suggestedEarliestTooltip')
         );
         midDateCol.setAttribute(
             'aria-label',
-            'Suggested earliest: earliest clinic date that keeps the currently scheduled appointments in the other eye unchanged.'
+            t('therapy.suggestedEarliestAria')
         );
         headerRow.appendChild(midDateCol);
 
         const dateCol = document.createElement('div');
         dateCol.classList.add(DATECOLWIDTH);
-        dateCol.textContent = 'Date';
+        dateCol.textContent = t('therapy.date');
         headerRow.appendChild(dateCol);
 
         headerContainer.appendChild(headerRow);
@@ -204,7 +261,10 @@ function createTherapyListComponent(cardId, type, planner) {
         const select = document.createElement('select');
         select.classList.add('form-select', 'form-select-sm');
         select.setAttribute('id', `${type}-minweeks-${index}`);
-        select.setAttribute('aria-label', `Minimum interval for session ${index + 1} of the ${eyeLabel()}`);
+        select.setAttribute('aria-label', t('therapy.aria.minWeeksInput', {
+            session: index + 1,
+            eye: headerLabel().toLowerCase(),
+        }));
 
         TherapyPlanner.MINWEEKS.forEach((minWeek) => {
             const option = document.createElement('option');
@@ -217,7 +277,7 @@ function createTherapyListComponent(cardId, type, planner) {
         select.addEventListener('change', (event) => {
             const result = planner.updateMinWeeksFor(type, index, Number(event.target.value));
             if (!result || result.success === false) {
-                setMsg(index, 'error', result && result.message ? result.message : 'Unable to update the minimum interval.');
+                setMsg(index, 'error', translatePlannerFeedback(result, 'therapy.updateMinWeeksFallback'));
                 buildPlan();
                 return;
             }
@@ -258,7 +318,10 @@ function createTherapyListComponent(cardId, type, planner) {
         dateInput.classList.add('form-control', 'form-control-sm');
         dateInput.setAttribute('type', 'date');
         dateInput.setAttribute('id', `${type}-date-${index}`);
-        dateInput.setAttribute('aria-label', `Date for session ${index + 1} of the ${eyeLabel()}`);
+        dateInput.setAttribute('aria-label', t('therapy.aria.dateInput', {
+            session: index + 1,
+            eye: headerLabel().toLowerCase(),
+        }));
         dateInput.value = formatDate(item.plannedDate);
 
         if (item.status === TherapyPlanner.STATUS_COMPLETED) {
@@ -274,7 +337,7 @@ function createTherapyListComponent(cardId, type, planner) {
             const nextDate = parseCalendarDate(event.target.value);
             const result = planner.updateDateFor(type, index, nextDate);
             if (!result || result.success === false) {
-                setMsg(index, 'error', result && result.message ? result.message : 'Unable to update the date.');
+                setMsg(index, 'error', translatePlannerFeedback(result, 'therapy.updateDateFallback'));
                 buildPlan();
                 return;
             }
@@ -289,19 +352,22 @@ function createTherapyListComponent(cardId, type, planner) {
     function buildCompletionForm(item, index, actionCol, dateCol) {
         const statusText = document.createElement('div');
         statusText.classList.add('small', 'text-muted');
-        statusText.textContent = 'Completing...';
+        statusText.textContent = t('therapy.completing');
         actionCol.appendChild(statusText);
 
         const label = document.createElement('label');
         label.classList.add('form-label', 'small', 'mb-1');
         label.setAttribute('for', `${type}-complete-date-${index}`);
-        label.textContent = 'Treatment date';
+        label.textContent = t('therapy.treatmentDate');
 
         const dateInput = document.createElement('input');
         dateInput.classList.add('form-control', 'form-control-sm');
         dateInput.setAttribute('type', 'date');
         dateInput.setAttribute('id', `${type}-complete-date-${index}`);
-        dateInput.setAttribute('aria-label', `Treatment date for session ${index + 1} of the ${eyeLabel()}`);
+        dateInput.setAttribute('aria-label', t('therapy.aria.completedDateInput', {
+            session: index + 1,
+            eye: headerLabel().toLowerCase(),
+        }));
         dateInput.setAttribute('max', formatDate(planner.today));
         dateInput.value = formatDate(planner.today);
 
@@ -312,7 +378,7 @@ function createTherapyListComponent(cardId, type, planner) {
         confirmBtn.classList.add('btn', 'btn-sm', 'btn-success');
         confirmBtn.setAttribute('type', 'button');
         confirmBtn.setAttribute('id', `${type}-complete-confirm-${index}`);
-        confirmBtn.textContent = 'Confirm';
+        confirmBtn.textContent = t('therapy.confirm');
         confirmBtn.addEventListener('click', () => {
             const treatmentDate = parseCalendarDate(dateInput.value);
             performPlannerMutation(index, () => planner.setStatus(
@@ -324,7 +390,7 @@ function createTherapyListComponent(cardId, type, planner) {
         cancelBtn.classList.add('btn', 'btn-sm', 'btn-outline-secondary');
         cancelBtn.setAttribute('type', 'button');
         cancelBtn.setAttribute('id', `${type}-complete-cancel-${index}`);
-        cancelBtn.textContent = 'Cancel';
+        cancelBtn.textContent = t('therapy.cancel');
         cancelBtn.addEventListener('click', () => {
             clearMsgs(index);
             _pendingAction = null;
@@ -344,7 +410,7 @@ function createTherapyListComponent(cardId, type, planner) {
         const badge = document.createElement('span');
         badge.classList.add('badge', 'bg-success');
         badge.setAttribute('id', `${type}-completed-badge-${index}`);
-        badge.textContent = '✓ Completed';
+        badge.textContent = `✓ ${t('therapy.completed')}`;
 
         const prompt = document.createElement('div');
         prompt.classList.add('small');
@@ -357,7 +423,7 @@ function createTherapyListComponent(cardId, type, planner) {
         restoreBtn.classList.add('btn', 'btn-sm', 'btn-outline-secondary');
         restoreBtn.setAttribute('type', 'button');
         restoreBtn.setAttribute('id', `${type}-restore-confirm-${index}`);
-        restoreBtn.textContent = 'Restore';
+        restoreBtn.textContent = t('therapy.restoreAsPlanned');
         restoreBtn.addEventListener('click', () => {
             performPlannerMutation(index, () => planner.setStatus(
                 type, index, TherapyPlanner.STATUS_PLANNED
@@ -368,7 +434,7 @@ function createTherapyListComponent(cardId, type, planner) {
         cancelBtn.classList.add('btn', 'btn-sm', 'btn-outline-secondary');
         cancelBtn.setAttribute('type', 'button');
         cancelBtn.setAttribute('id', `${type}-restore-cancel-${index}`);
-        cancelBtn.textContent = 'Cancel';
+        cancelBtn.textContent = t('therapy.cancel');
         cancelBtn.addEventListener('click', () => {
             clearMsgs(index);
             _pendingAction = null;
@@ -396,14 +462,17 @@ function createTherapyListComponent(cardId, type, planner) {
             const badge = document.createElement('span');
             badge.classList.add('badge', 'bg-success', 'align-self-start');
             badge.setAttribute('id', `${type}-completed-badge-${index}`);
-            badge.textContent = '✓ Completed';
+            badge.textContent = `✓ ${t('therapy.completed')}`;
 
             const restoreBtn = document.createElement('button');
             restoreBtn.classList.add('btn', 'btn-sm', 'btn-outline-secondary');
             restoreBtn.setAttribute('type', 'button');
             restoreBtn.setAttribute('id', `${type}-restore-planned-${index}`);
-            restoreBtn.setAttribute('aria-label', `Restore session ${index + 1} for the ${eyeLabel()} as planned`);
-            restoreBtn.textContent = 'Restore as planned';
+            restoreBtn.setAttribute('aria-label', t('therapy.aria.restoreButton', {
+                session: index + 1,
+                eye: headerLabel().toLowerCase(),
+            }));
+            restoreBtn.textContent = t('therapy.restoreAsPlanned');
             restoreBtn.addEventListener('click', () => {
                 _pendingAction = { kind: 'restore', index };
                 queueFocus(`${type}-restore-confirm-${index}`);
@@ -425,8 +494,11 @@ function createTherapyListComponent(cardId, type, planner) {
         button.classList.add('btn', 'btn-sm', 'btn-outline-success');
         button.setAttribute('type', 'button');
         button.setAttribute('id', `${type}-mark-completed-${index}`);
-        button.setAttribute('aria-label', `Mark session ${index + 1} for the ${eyeLabel()} as completed`);
-        button.textContent = 'Mark as completed';
+        button.setAttribute('aria-label', t('therapy.aria.completeButton', {
+            session: index + 1,
+            eye: headerLabel().toLowerCase(),
+        }));
+        button.textContent = t('therapy.markAsCompleted');
         button.addEventListener('click', () => {
             _pendingAction = { kind: 'complete', index };
             queueFocus(`${type}-complete-date-${index}`);
@@ -493,6 +565,9 @@ function createTherapyListComponent(cardId, type, planner) {
     }
 
     planner.addListener(onPlanUpdate);
+    if (i18n && typeof i18n.subscribe === 'function') {
+        i18n.subscribe(buildPlan);
+    }
     buildPlan();
     return card;
 }
