@@ -1,0 +1,103 @@
+.privacy-info-root {
+  display: inline-flex;
+}
+
+.privacy-info-launch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+}
+
+.privacy-info-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1080;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(18, 27, 42, 0.68);
+}
+
+.privacy-info-overlay.open {
+  display: flex;
+}
+
+.privacy-info-dialog {
+  width: min(100%, 44rem);
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  border-radius: 0.875rem;
+  background: #ffffff;
+  color: #1f2937;
+  box-shadow: 0 1.25rem 3rem rgba(15, 23, 42, 0.28);
+  padding: 1.25rem;
+}
+
+.privacy-info-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.5rem;
+}
+
+.privacy-info-intro {
+  margin: 0 0 1rem;
+}
+
+.privacy-info-section + .privacy-info-section {
+  margin-top: 1rem;
+}
+
+.privacy-info-section-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+.privacy-info-section p,
+.privacy-info-section code {
+  overflow-wrap: anywhere;
+}
+
+.privacy-info-storage-key {
+  display: inline-block;
+  margin: 0 0 0.75rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.375rem;
+  background: #eff3f8;
+  font-size: 0.95rem;
+}
+
+.privacy-info-close-btn {
+  margin-top: 1.25rem;
+  min-height: 2.75rem;
+  min-width: 7rem;
+}
+
+.privacy-info-launch-btn:focus-visible,
+.privacy-info-close-btn:focus-visible {
+  outline: 3px solid #0d6efd;
+  outline-offset: 2px;
+}
+
+@media (max-width: 575.98px) {
+  .privacy-info-overlay {
+    padding: 0.75rem;
+    align-items: flex-start;
+  }
+
+  .privacy-info-dialog {
+    width: 100%;
+    max-height: calc(100vh - 1.5rem);
+    padding: 1rem;
+    margin-top: 0.25rem;
+  }
+}
+
+@media print {
+  .privacy-info-root,
+  .privacy-info-overlay,
+  .no-print.privacy-info-root,
+  .no-print.privacy-info-overlay {
+    display: none !important;
+  }
+}

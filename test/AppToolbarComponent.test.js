@@ -6,6 +6,7 @@ const translations = require('../translations.js');
 const { createI18n } = require('../I18n.js');
 const createAppToolbarComponent = require('../AppToolbarComponent.js');
 const createLanguageSelectorComponent = require('../LanguageSelectorComponent.js');
+const createPrivacyInfoComponent = require('../PrivacyInfoComponent.js');
 const patientScheduleModule = require('../PatientSchedule.js');
 const {
   withMockDom,
@@ -30,6 +31,75 @@ test('app-toolbar: renders header shell with default title and labelled actions 
     assert.equal(toolbar.classList.contains('no-print'), true);
     assert.equal(toolbar.querySelector('h1').textContent, 'TherapyPlanner');
     assert.equal(toolbar.querySelector('#app-toolbar-actions').getAttribute('aria-label'), 'Application actions');
+  });
+});
+
+test('app-toolbar integration: keeps privacy as the third action and isolates privacy and patient-schedule overlays', () => {
+  const createPatientScheduleComponent = loadPatientScheduleComponent();
+
+  withMockDom((mockDocument) => {
+    const previousTherapyPlanner = global.TherapyPlanner;
+
+    global.TherapyPlanner = TherapyPlanner;
+
+    try {
+      const i18n = createI18n({
+        translations,
+        navigator: { language: 'en-GB' },
+        document: mockDocument,
+        storage: createMockStorage(JSON.stringify({ locale: 'en' })),
+      });
+
+      const patientScheduleElement = createPatientScheduleComponent({
+        validateSchedule: () => ({ valid: true }),
+        getPlanByEye: () => [],
+      }, { i18n });
+      const languageSelectorElement = createLanguageSelectorComponent(i18n);
+      const privacyInfoElement = createPrivacyInfoComponent({
+        i18n,
+        storageKey: i18n.getStorageKey(),
+      });
+
+      const toolbar = createAppToolbarComponent({
+        title: 'TherapyPlanner',
+        i18n,
+        actionElements: [patientScheduleElement, languageSelectorElement, privacyInfoElement],
+      });
+
+      mockDocument.body.appendChild(toolbar);
+
+      const actions = toolbar.querySelector('.app-toolbar-actions');
+      assert.equal(actions.children[0], patientScheduleElement);
+      assert.equal(actions.children[1], languageSelectorElement);
+      assert.equal(actions.children[2], privacyInfoElement);
+      assert.equal(toolbar.querySelectorAll('#patient-schedule-launch-btn').length, 1);
+      assert.equal(toolbar.querySelectorAll('#app-language-select').length, 1);
+      assert.equal(toolbar.querySelectorAll('#privacy-info-launch-btn').length, 1);
+
+      const languageSelect = mockDocument.getElementById('app-language-select');
+      languageSelect.dispatchEvent(createChangeEvent('de'));
+
+      assert.equal(mockDocument.getElementById('privacy-info-launch-btn').textContent.includes('Datenschutz'), true);
+
+      const privacyLaunchButton = mockDocument.getElementById('privacy-info-launch-btn');
+      const privacyOverlay = mockDocument.getElementById('privacy-info-overlay');
+      const patientLaunchButton = mockDocument.getElementById('patient-schedule-launch-btn');
+      const patientOverlay = mockDocument.getElementById('patient-schedule-overlay');
+      const printHost = mockDocument.getElementById('patient-schedule-print-host');
+
+      privacyLaunchButton.dispatchEvent(createClickEvent());
+      assert.equal(privacyOverlay.classList.contains('open'), true);
+      assert.equal(patientOverlay.classList.contains('open'), false);
+
+      patientLaunchButton.dispatchEvent(createClickEvent());
+      assert.equal(patientOverlay.classList.contains('open'), true);
+      assert.equal(privacyOverlay.classList.contains('open'), true);
+      assert.equal(mockDocument.body.children.indexOf(printHost) >= 0, true);
+      assert.equal(printHost.parentNode, mockDocument.body);
+      assert.equal(printHost.querySelectorAll('#privacy-info-dialog').length, 0);
+    } finally {
+      global.TherapyPlanner = previousTherapyPlanner;
+    }
   });
 });
 
