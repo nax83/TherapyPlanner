@@ -2994,7 +2994,7 @@ test('guidance-UI-5: completed row has no min attribute on date input', () => {
 test('guidance-UI-6: left component redraws with updated suggestion after right-eye input change', () => {
   withMockDom((createTherapyListComponent, mockDoc) => {
     function expectedUiDate(date) {
-      return date.toLocaleDateString('it-IT', {
+      return date.toLocaleDateString('en-GB', {
         weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
       });
     }

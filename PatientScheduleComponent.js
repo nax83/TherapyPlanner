@@ -191,12 +191,23 @@ function createPatientScheduleComponent(planner, options) {
   table.appendChild(thead);
   const headerRow = document.createElement('tr');
   thead.appendChild(headerRow);
-  for (const label of [_labels.date, _labels.day, _labels.treatment]) {
-    const th = document.createElement('th');
-    th.setAttribute('scope', 'col');
-    th.textContent = label;
-    headerRow.appendChild(th);
-  }
+  const dateHeader = document.createElement('th');
+  dateHeader.setAttribute('id', 'patient-schedule-date-header');
+  dateHeader.setAttribute('scope', 'col');
+  dateHeader.textContent = _labels.date;
+  headerRow.appendChild(dateHeader);
+
+  const dayHeader = document.createElement('th');
+  dayHeader.setAttribute('id', 'patient-schedule-day-header');
+  dayHeader.setAttribute('scope', 'col');
+  dayHeader.textContent = _labels.day;
+  headerRow.appendChild(dayHeader);
+
+  const treatmentHeader = document.createElement('th');
+  treatmentHeader.setAttribute('id', 'patient-schedule-treatment-header');
+  treatmentHeader.setAttribute('scope', 'col');
+  treatmentHeader.textContent = _labels.treatment;
+  headerRow.appendChild(treatmentHeader);
 
   const tbody = document.createElement('tbody');
   tbody.setAttribute('id', 'patient-schedule-table-body');
@@ -256,17 +267,44 @@ function createPatientScheduleComponent(planner, options) {
   let _printCleanupDone = false;   // idempotent guard for lifecycle cleanup
   let _afterPrintHandler = null;   // stored so it can be removed
   let _focusHandler      = null;
+  let _errorState        = null;
 
   // ── Helper functions ──────────────────────────────────────────────────────
 
-  function _showError(msg) {
-    errorArea.textContent = msg;
-    errorArea.classList.remove('hidden');
+  function _renderErrorState() {
+    if (!_errorState) {
+      errorArea.textContent = '';
+      errorArea.classList.add('hidden');
+      return;
+    }
+
+    if (typeof _errorState === 'string') {
+      errorArea.textContent = _errorState;
+    } else if (i18n && typeof i18n.t === 'function' && _errorState.key) {
+      errorArea.textContent = i18n.t(_errorState.key, _errorState.parameters || {});
+    } else if (_errorState.fallbackText) {
+      errorArea.textContent = _errorState.fallbackText;
+    } else if (_errorState.parameters && _errorState.parameters.details) {
+      errorArea.textContent = _errorState.parameters.details;
+    } else {
+      errorArea.textContent = '';
+    }
+
+    if (errorArea.textContent) {
+      errorArea.classList.remove('hidden');
+    } else {
+      errorArea.classList.add('hidden');
+    }
+  }
+
+  function _showError(errorState) {
+    _errorState = errorState;
+    _renderErrorState();
   }
 
   function _clearError() {
-    errorArea.textContent = '';
-    errorArea.classList.add('hidden');
+    _errorState = null;
+    _renderErrorState();
   }
 
   function _openOverlay() {
@@ -422,7 +460,13 @@ function createPatientScheduleComponent(planner, options) {
     const v = planner.validateSchedule();
     if (!v.valid) {
       _clearTable();
-      _showError('Schedule is not valid: ' + (v.violations || []).join('; '));
+      _showError({
+        key: 'patientSchedule.errors.scheduleInvalid',
+        fallbackText: `Schedule validation failed: ${(v.violations || []).join('; ')}`,
+        parameters: {
+          details: (v.violations || []).join('; '),
+        },
+      });
       _openOverlay();
       if (typeof closeBtn.focus === 'function') closeBtn.focus();
       return;
@@ -438,7 +482,13 @@ function createPatientScheduleComponent(planner, options) {
       rows = _buildList(schedule);
     } catch (err) {
       _clearTable();
-      _showError('Failed to build appointment list: ' + err.message);
+      _showError({
+        key: 'patientSchedule.errors.buildFailed',
+        fallbackText: `Could not build the appointment list: ${err.message}`,
+        parameters: {
+          details: err.message,
+        },
+      });
       _openOverlay();
       if (typeof closeBtn.focus === 'function') closeBtn.focus();
       return;
@@ -470,7 +520,10 @@ function createPatientScheduleComponent(planner, options) {
     _clearError();
 
     if (typeof window === 'undefined' || typeof window.print !== 'function') {
-      _showError('Printing is not available in this environment.');
+      _showError({
+        key: 'patientSchedule.errors.printUnavailable',
+        fallbackText: 'Printing is not available in this environment.',
+      });
       return;
     }
 
@@ -482,7 +535,15 @@ function createPatientScheduleComponent(planner, options) {
       _preparePrintHost();
     } catch (err) {
       _cleanupPrintState();
-      _showError('Print preparation failed: ' + (err.message || 'unknown error'));
+      _showError({
+        key: 'patientSchedule.errors.printPreparationFailed',
+        fallbackText: `Could not prepare the print view: ${
+          err.message || (i18n ? i18n.t('patientSchedule.errors.unknown') : 'unknown error')
+        }`,
+        parameters: {
+          details: err.message || (i18n ? i18n.t('patientSchedule.errors.unknown') : 'unknown error'),
+        },
+      });
       return;
     }
 
@@ -503,7 +564,15 @@ function createPatientScheduleComponent(planner, options) {
         window.print();
       } catch (err) {
         _finishPrint();
-        _showError('Printing failed: ' + (err.message || 'unknown error'));
+        _showError({
+          key: 'patientSchedule.errors.printFailed',
+          fallbackText: `Printing failed: ${
+            err.message || (i18n ? i18n.t('patientSchedule.errors.unknown') : 'unknown error')
+          }`,
+          parameters: {
+            details: err.message || (i18n ? i18n.t('patientSchedule.errors.unknown') : 'unknown error'),
+          },
+        });
       }
     });
   });
@@ -526,11 +595,22 @@ function createPatientScheduleComponent(planner, options) {
     nameLabel.textContent = _labels.patientName + ':';
     nameInput.setAttribute('placeholder', _labels.patientName);
     titleEl.textContent = _labels.title;
+    dateHeader.textContent = _labels.date;
+    dayHeader.textContent = _labels.day;
+    treatmentHeader.textContent = _labels.treatment;
+    emptyMsg.textContent = _labels.empty;
+    footerEl.textContent = _labels.footer;
     printBtn.textContent = _labels.print;
     closeBtn.textContent = _labels.close;
+    closeBtn.setAttribute('aria-label', _labels.close);
     _updatePatientDisplay();
+    _renderErrorState();
 
     if (!overlay.classList.contains('open')) {
+      return;
+    }
+
+    if (!_printEnabled) {
       return;
     }
 
