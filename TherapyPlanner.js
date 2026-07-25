@@ -56,12 +56,24 @@ function cloneDefaultWeekdays() {
   return [...DEFAULT_VALID_WEEKDAYS];
 }
 
-function normalizeValidWeekdays(weekdays) {
-  if (!Array.isArray(weekdays)) return cloneDefaultWeekdays();
-  const sanitized = [...new Set(
-    weekdays.map(d => Number(d)).filter(d => Number.isInteger(d) && d >= 0 && d <= 6),
-  )].sort((a, b) => a - b);
-  return sanitized.length > 0 ? sanitized : cloneDefaultWeekdays();
+function normalizeConfiguredWeekdays(weekdays) {
+  const normalized = normalizeRequestedWeekdays(weekdays);
+  return normalized || cloneDefaultWeekdays();
+}
+
+function normalizeRequestedWeekdays(weekdays) {
+  if (!Array.isArray(weekdays)) return null;
+
+  const unique = [];
+  for (const weekday of weekdays) {
+    if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) {
+      return null;
+    }
+    if (!unique.includes(weekday)) unique.push(weekday);
+  }
+
+  unique.sort((a, b) => a - b);
+  return unique.length > 0 ? unique : null;
 }
 
 function loadScheduleConfig() {
@@ -118,7 +130,7 @@ class TherapyPlanner {
     const todayRaw = (options.today instanceof Date) ? options.today : new Date();
     this.today = normalizeDate(todayRaw);
 
-    this.daysToCheck = normalizeValidWeekdays(config && config.validAppointmentWeekdays);
+    this.daysToCheck = normalizeConfiguredWeekdays(config && config.validAppointmentWeekdays);
 
     const rawGap = config && config.interEyeGapDays;
     this.interEyeGapDays =
@@ -206,6 +218,34 @@ class TherapyPlanner {
       }));
     }
     return clone;
+  }
+
+  _clonePlannerState() {
+    return {
+      weekdays: [...this.daysToCheck],
+      schedule: this._cloneSchedule(),
+    };
+  }
+
+  _restorePlannerState(snapshot) {
+    this.daysToCheck = [...snapshot.weekdays];
+    this.schedule = snapshot.schedule;
+  }
+
+  _setWeekdayConfiguration(nextWeekdays) {
+    this.daysToCheck = [...nextWeekdays];
+  }
+
+  _weekdayResult(success, changed, previousWeekdays, weekdays, extra) {
+    const details = extra || {};
+    return {
+      success,
+      changed,
+      previousWeekdays: [...previousWeekdays],
+      weekdays: [...weekdays],
+      warnings: [],
+      ...details,
+    };
   }
 
   isClinicDate(date) {
@@ -1029,6 +1069,52 @@ class TherapyPlanner {
     if (!v.valid) { this.schedule = snapshot; return false; }
     this.notifyListeners();
     return true;
+  }
+
+  getValidAppointmentWeekdays() {
+    return [...this.daysToCheck];
+  }
+
+  setValidAppointmentWeekdays(nextWeekdays) {
+    const previousWeekdays = this.getValidAppointmentWeekdays();
+    const normalized = normalizeRequestedWeekdays(nextWeekdays);
+
+    if (!normalized) {
+      return this._weekdayResult(false, false, previousWeekdays, previousWeekdays, {
+        reason: 'INVALID_APPOINTMENT_WEEKDAYS',
+        message: 'validAppointmentWeekdays must be a non-empty array of unique integers between 0 and 6.',
+      });
+    }
+
+    if (
+      normalized.length === previousWeekdays.length &&
+      normalized.every((weekday, index) => weekday === previousWeekdays[index])
+    ) {
+      return this._weekdayResult(true, false, previousWeekdays, previousWeekdays);
+    }
+
+    const snapshot = this._clonePlannerState();
+
+    try {
+      this._setWeekdayConfiguration(normalized);
+      const fixedKeys = new Set();
+      const mutableKeys = this._allPlannedKeys(fixedKeys);
+      this._cascade(snapshot.schedule, fixedKeys, mutableKeys, CASCADE_MODE_ORDINARY);
+
+      const validation = this.validateSchedule();
+      if (!validation.valid) {
+        throw new Error(validation.violations.join('; '));
+      }
+    } catch (error) {
+      this._restorePlannerState(snapshot);
+      return this._weekdayResult(false, false, previousWeekdays, previousWeekdays, {
+        reason: 'WEEKDAY_RECALCULATION_FAILED',
+        message: error && error.message ? error.message : 'Weekday recalculation failed.',
+      });
+    }
+
+    this.notifyListeners();
+    return this._weekdayResult(true, true, previousWeekdays, normalized);
   }
 
   // ── validation ───────────────────────────────────────────────────────────────

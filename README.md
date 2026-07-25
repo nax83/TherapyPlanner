@@ -75,6 +75,28 @@ Weekday numbers follow `Date.getDay()`: `0` = Sunday … `6` = Saturday. The def
 
 `interEyeGapDays` (default `14`) is the minimum number of calendar days between any left-eye and any right-eye planned appointment. The rule is enforced after every mutation; a same-day bilateral result is never valid.
 
+## Runtime clinic weekdays API
+
+The scheduling engine now exposes the active clinic weekdays at runtime:
+
+```js
+planner.getValidAppointmentWeekdays();
+planner.setValidAppointmentWeekdays([1, 3, 5]);
+```
+
+Weekday numbers follow JavaScript `Date.getDay()`: `0` = Sunday, `1` = Monday, `2` = Tuesday, `3` = Wednesday, `4` = Thursday, `5` = Friday, `6` = Saturday.
+
+The canonical representation is always a non-empty sorted array of unique integers between `0` and `6`. Inputs such as `[4, 2, 4, 3]` are normalised to `[2, 3, 4]`. Invalid inputs are rejected atomically and do not mutate planner state or schedules.
+
+Changing weekdays is runtime-only in Phase 1.5d. There is no settings UI or persistence yet, so weekday changes do not survive a page reload. Phase 1.5e will add the settings UI.
+
+When the weekday set changes successfully:
+
+- completed historical appointments remain unchanged, even if their historical weekday is no longer active;
+- planned appointments are recalculated with the active weekday set while preserving the existing same-eye and cross-eye constraints;
+- eligible future confirmed anchors may remain fixed, while ineligible ones are reevaluated through the existing scheduling rules;
+- date guidance and schedule validation immediately use the new active weekday set.
+
 ## Appointment Model
 
 Each appointment has:
