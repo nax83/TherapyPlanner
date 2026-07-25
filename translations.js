@@ -12,6 +12,38 @@ const THERAPY_PLANNER_TRANSLATIONS = {
         it: 'Italiano',
       },
     },
+    privacy: {
+      launch: 'Privacy',
+      title: 'Privacy and data handling',
+      intro: 'TherapyPlanner runs in your browser. It does not provide a user account or use an application backend.',
+      browserSession: {
+        title: 'Information used in this browser',
+        paragraph1: 'Patient names, appointment dates, treatment-status changes and generated schedules are handled only in the current page session.',
+        paragraph2: 'TherapyPlanner does not persist this information. It is reset when the page is reloaded.',
+      },
+      storedPreference: {
+        title: 'Information stored on this device',
+        beforeKey: 'Only the selected language is stored in your browser\'s local storage under the following key:',
+        afterKey: 'No patient name, appointment, treatment status or printed document is stored under this key.',
+        unavailable: 'If browser storage is unavailable, the language selection remains active only for the current page session.',
+      },
+      network: {
+        title: 'Network requests',
+        paragraph1: 'TherapyPlanner does not send patient names, appointments or treatment statuses to an application backend and does not include analytics or advertising.',
+        paragraph2: 'The page currently loads interface libraries and icons from external content-delivery networks. Those providers and the website host may receive technical request data such as the IP address, browser information, requested file, request time and referrer, according to their own policies.',
+      },
+      printing: {
+        title: 'Printing and PDF files',
+        paragraph1: 'Printing or saving as PDF is handled by your browser and operating system. TherapyPlanner does not upload the patient appointment list.',
+        paragraph2: 'A PDF or printed copy may contain patient information. Store and share it appropriately.',
+      },
+      clinicalUse: {
+        title: 'Use in a clinical context',
+        paragraph1: 'Enter only the patient-identifying information that is necessary and verify the appointment plan with the clinic.',
+        paragraph2: 'This notice describes the application\'s technical behaviour. It is not the legal privacy notice of a clinic or healthcare provider.',
+      },
+      close: 'Close',
+    },
     therapy: {
       rightEye: 'Right eye',
       leftEye: 'Left eye',
@@ -98,6 +130,38 @@ const THERAPY_PLANNER_TRANSLATIONS = {
         it: 'Italiano',
       },
     },
+    privacy: {
+      launch: 'Datenschutz',
+      title: 'Datenschutz und Datenverarbeitung',
+      intro: 'TherapyPlanner läuft in Ihrem Browser. Die Anwendung bietet kein Benutzerkonto und verwendet kein Anwendungs-Backend.',
+      browserSession: {
+        title: 'In diesem Browser verwendete Informationen',
+        paragraph1: 'Patientennamen, Termine, Änderungen des Behandlungsstatus und erzeugte Pläne werden nur während der aktuellen Seitensitzung verarbeitet.',
+        paragraph2: 'TherapyPlanner speichert diese Informationen nicht dauerhaft. Beim Neuladen der Seite werden sie zurückgesetzt.',
+      },
+      storedPreference: {
+        title: 'Auf diesem Gerät gespeicherte Informationen',
+        beforeKey: 'Nur die ausgewählte Sprache wird im lokalen Speicher Ihres Browsers unter dem folgenden Schlüssel gespeichert:',
+        afterKey: 'Unter diesem Schlüssel werden keine Patientennamen, Termine, Behandlungsstatus oder gedruckten Dokumente gespeichert.',
+        unavailable: 'Wenn der Browserspeicher nicht verfügbar ist, bleibt die Sprachauswahl nur während der aktuellen Seitensitzung aktiv.',
+      },
+      network: {
+        title: 'Netzwerkanfragen',
+        paragraph1: 'TherapyPlanner übermittelt keine Patientennamen, Termine oder Behandlungsstatus an ein Anwendungs-Backend und enthält keine Analyse- oder Werbefunktionen.',
+        paragraph2: 'Die Seite lädt derzeit Oberflächenbibliotheken und Symbole über externe Content-Delivery-Netzwerke. Diese Anbieter und der Betreiber der Website können dabei technische Anfragedaten wie IP-Adresse, Browserinformationen, angeforderte Datei, Anfragezeitpunkt und Referrer gemäß ihren eigenen Bestimmungen erhalten.',
+      },
+      printing: {
+        title: 'Drucken und PDF-Dateien',
+        paragraph1: 'Das Drucken oder Speichern als PDF wird durch Ihren Browser und Ihr Betriebssystem ausgeführt. TherapyPlanner lädt die Patientenliste nicht hoch.',
+        paragraph2: 'Eine PDF-Datei oder ein Ausdruck kann Patientendaten enthalten. Bewahren Sie diese entsprechend geschützt auf und geben Sie sie nur angemessen weiter.',
+      },
+      clinicalUse: {
+        title: 'Verwendung im klinischen Umfeld',
+        paragraph1: 'Geben Sie nur die notwendigen patientenbezogenen Informationen ein und prüfen Sie den Terminplan mit der Klinik.',
+        paragraph2: 'Dieser Hinweis beschreibt das technische Verhalten der Anwendung. Er ist nicht die rechtliche Datenschutzerklärung einer Klinik oder eines Gesundheitsdienstleisters.',
+      },
+      close: 'Schließen',
+    },
     therapy: {
       rightEye: 'Rechtes Auge',
       leftEye: 'Linkes Auge',
@@ -183,6 +247,38 @@ const THERAPY_PLANNER_TRANSLATIONS = {
         de: 'Deutsch',
         it: 'Italiano',
       },
+    },
+    privacy: {
+      launch: 'Privacy',
+      title: 'Privacy e trattamento dei dati',
+      intro: 'TherapyPlanner funziona nel browser. L\'applicazione non prevede un account utente e non utilizza un backend applicativo.',
+      browserSession: {
+        title: 'Informazioni utilizzate nel browser',
+        paragraph1: 'I nomi dei pazienti, le date degli appuntamenti, le modifiche allo stato dei trattamenti e i piani generati vengono trattati soltanto durante la sessione corrente della pagina.',
+        paragraph2: 'TherapyPlanner non memorizza queste informazioni in modo persistente. Vengono reimpostate quando la pagina viene ricaricata.',
+      },
+      storedPreference: {
+        title: 'Informazioni memorizzate sul dispositivo',
+        beforeKey: 'Nel localStorage del browser viene memorizzata soltanto la lingua selezionata, con la seguente chiave:',
+        afterKey: 'Con questa chiave non vengono memorizzati nomi dei pazienti, appuntamenti, stati dei trattamenti o documenti stampati.',
+        unavailable: 'Quando lo spazio di archiviazione del browser non è disponibile, la lingua selezionata rimane attiva soltanto durante la sessione corrente della pagina.',
+      },
+      network: {
+        title: 'Richieste di rete',
+        paragraph1: 'TherapyPlanner non invia nomi dei pazienti, appuntamenti o stati dei trattamenti a un backend applicativo e non include strumenti di analisi o pubblicità.',
+        paragraph2: 'La pagina carica attualmente librerie dell\'interfaccia e icone tramite reti CDN esterne. Tali fornitori e il gestore del sito possono ricevere dati tecnici della richiesta, come indirizzo IP, informazioni sul browser, file richiesti, orario della richiesta e referrer, secondo le rispettive condizioni.',
+      },
+      printing: {
+        title: 'Stampa e file PDF',
+        paragraph1: 'La stampa o il salvataggio in PDF vengono gestiti dal browser e dal sistema operativo. TherapyPlanner non carica online l\'elenco degli appuntamenti del paziente.',
+        paragraph2: 'Un file PDF o una copia stampata può contenere dati del paziente. Conservarla e condividerla in modo appropriato.',
+      },
+      clinicalUse: {
+        title: 'Uso in ambito clinico',
+        paragraph1: 'Inserire soltanto le informazioni identificative del paziente strettamente necessarie e verificare il piano degli appuntamenti con la clinica.',
+        paragraph2: 'Queste informazioni descrivono il comportamento tecnico dell\'applicazione. Non costituiscono l\'informativa privacy legale di una clinica o di un professionista sanitario.',
+      },
+      close: 'Chiudi',
     },
     therapy: {
       rightEye: 'Occhio destro',

@@ -382,6 +382,19 @@ The selected locale is persisted locally in `therapyPlanner.preferences.v1` as:
 This preference storage is limited to non-patient UI settings.
 This localisation feature does **not** persist patient names, appointment data, treatment status, or printable document content.
 
+## Privacy and data handling
+
+Privacy information is available from the toolbar through the `Privacy` / `Datenschutz` dialog.
+
+- Patient names, appointment data, treatment-status changes, and generated patient schedules are handled only in browser memory for the current page session.
+- TherapyPlanner does not persist patient names, appointments, treatment statuses, printed documents, or generated patient lists.
+- Only the selected locale is stored, under `therapyPlanner.preferences.v1`.
+- If browser storage is blocked or unavailable, locale selection remains active only for the current page session.
+- TherapyPlanner has no user account system and no application backend.
+- The page currently loads interface resources from external CDNs, and the website host plus those CDN providers may receive ordinary technical request metadata.
+- Printing and PDF creation are handled by the browser and operating system; the patient appointment list is not uploaded as part of the print workflow.
+- This is technical product information, not a clinic's complete legal privacy policy.
+
 ## License
 
 MIT
