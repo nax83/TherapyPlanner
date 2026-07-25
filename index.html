@@ -40,13 +40,9 @@
   </div>
   <script>
     (async () => {
-      let preferenceStorage = null;
-
-      try {
-        preferenceStorage = window.localStorage;
-      } catch (error) {
-        preferenceStorage = null;
-      }
+      const preferenceStorage = getSafeStorage(function getLocalStorage() {
+        return window.localStorage;
+      });
 
       const i18n = createI18n({
         translations: THERAPY_PLANNER_TRANSLATIONS,

@@ -784,3 +784,125 @@ test('minweeks-4: changing a later row Min Weeks invokes updateMinWeeksFor and r
     assert.ok(left.findById(`${TherapyPlanner.LEFTEYE}-row-0`), 'left plan must still render after redraw');
     global.document = undefined;
 });
+
+test('i18n-complete-1: actual completion input preserves draft date across locale changes and keeps focus on the language selector', () => {
+    const { createI18n } = require('../I18n.js');
+    const translations = require('../translations.js');
+    const prevDoc = global.document;
+    const doc = new MockDocument();
+    global.document = doc;
+
+    try {
+        const i18n = createI18n({
+            translations,
+            navigator: { language: 'en-GB' },
+            document: doc,
+        });
+        const planner = new TherapyPlanner({}, { today: new Date(2026, 6, 25) });
+        planner.addTherapy(TherapyPlanner.RIGHTEYE, new Date(2026, 6, 25), 4);
+
+        const root = createTherapyListComponent('right', TherapyPlanner.RIGHTEYE, planner, { i18n });
+        doc.body.appendChild(root);
+
+        const languageSelect = doc.createElement('select');
+        languageSelect.setAttribute('id', 'app-language-select');
+        doc.body.appendChild(languageSelect);
+
+        const plannerListenerCount = planner.listeners.length;
+        click(root.findById(`${TherapyPlanner.RIGHTEYE}-mark-completed-0`));
+
+        let completionInput = doc.getElementById(`${TherapyPlanner.RIGHTEYE}-complete-date-0`);
+        assert.ok(completionInput, 'completion input must exist');
+        assert.equal(completionInput.value, '2026-07-25', 'opening completion defaults to today');
+
+        completionInput.value = '2026-07-20';
+        completionInput.eventListeners.input[0]({ target: completionInput });
+
+        assert.equal(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].status, TherapyPlanner.STATUS_PLANNED);
+        languageSelect.focus();
+        i18n.setLocale('de');
+
+        completionInput = doc.getElementById(`${TherapyPlanner.RIGHTEYE}-complete-date-0`);
+        assert.ok(completionInput, 'completion form must remain open');
+        assert.equal(completionInput.value, '2026-07-20', 'completion draft date must survive locale refresh');
+        assert.equal(doc.activeElement, languageSelect, 'focus must remain on the language selector');
+        assert.equal(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].status, TherapyPlanner.STATUS_PLANNED);
+
+        i18n.setLocale('it');
+        i18n.setLocale('en');
+        assert.equal(planner.listeners.length, plannerListenerCount, 'planner listener count must remain stable');
+
+        click(doc.getElementById(`${TherapyPlanner.RIGHTEYE}-complete-confirm-0`));
+        const planItem = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0];
+        assert.equal(planItem.status, TherapyPlanner.STATUS_COMPLETED);
+        assert.equal(fmt(planItem.plannedDate), '2026-07-20', 'confirm must use the preserved completion draft date');
+    } finally {
+        global.document = prevDoc;
+    }
+});
+
+test('i18n-complete-2: weeks suffix, suggestion dates, restore confirmation, and structured errors rerender by locale', () => {
+    const { createI18n } = require('../I18n.js');
+    const translations = require('../translations.js');
+    const prevDoc = global.document;
+    const doc = new MockDocument();
+    global.document = doc;
+
+    try {
+        const i18n = createI18n({
+            translations,
+            navigator: { language: 'en-GB' },
+            document: doc,
+        });
+        const planner = new TherapyPlanner({}, { today: new Date(2026, 6, 25) });
+        planner.addTherapy(TherapyPlanner.RIGHTEYE, new Date(2026, 6, 25), 4);
+
+        const root = createTherapyListComponent('right', TherapyPlanner.RIGHTEYE, planner, { i18n });
+        doc.body.appendChild(root);
+
+        assert.ok(collectByText(root, '4 weeks').length > 0, 'English min-week suffix must be visible');
+
+        const guidance = planner.getDateGuidanceFor(TherapyPlanner.RIGHTEYE, 0);
+        const expectedEn = i18n.formatDate(guidance.suggestedEarliestDate, {
+            weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+        });
+        assert.ok(root.textContent.includes(expectedEn), 'English suggestion format must be visible');
+        const englishText = root.textContent;
+
+        planner.setStatus(TherapyPlanner.RIGHTEYE, 0, TherapyPlanner.STATUS_COMPLETED, new Date(2026, 6, 25));
+        const completedRoot = createTherapyListComponent('right-completed', TherapyPlanner.RIGHTEYE, planner, { i18n });
+        doc.body.appendChild(completedRoot);
+        click(completedRoot.findById(`${TherapyPlanner.RIGHTEYE}-restore-planned-0`));
+        assert.ok(collectByText(completedRoot, i18n.t('therapy.restoreConfirmation')).length > 0, 'English restore confirmation must use translations');
+
+        i18n.setLocale('de');
+        assert.ok(collectByText(root, '4 Wochen').length > 0, 'German min-week suffix must be visible');
+        const expectedDe = i18n.formatDate(guidance.suggestedEarliestDate, {
+            weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+        });
+        assert.notEqual(expectedDe, expectedEn, 'locale-specific suggestion formatting must differ');
+        assert.notEqual(root.textContent, englishText, 'suggested-earliest text must rerender after a locale change');
+        assert.ok(collectByText(completedRoot, i18n.t('therapy.restoreConfirmation')).length > 0, 'German restore confirmation must rerender in place');
+
+        const plannerForError = new TherapyPlanner({}, { today: new Date(2026, 6, 25) });
+        plannerForError.addTherapy(TherapyPlanner.RIGHTEYE, new Date(2026, 6, 25), 4);
+        const errorRoot = createTherapyListComponent('right-error', TherapyPlanner.RIGHTEYE, plannerForError, { i18n });
+        doc.body.appendChild(errorRoot);
+
+        click(errorRoot.findById(`${TherapyPlanner.RIGHTEYE}-mark-completed-0`));
+        const completionInput = doc.getElementById(`${TherapyPlanner.RIGHTEYE}-complete-date-0`);
+        completionInput.value = '2026-12-25';
+        completionInput.eventListeners.input[0]({ target: completionInput });
+        click(doc.getElementById(`${TherapyPlanner.RIGHTEYE}-complete-confirm-0`));
+        let error = errorRoot.findById(`${TherapyPlanner.RIGHTEYE}-error-0`);
+        assert.equal(error.textContent, i18n.t('plannerErrors.COMPLETED_AFTER_TODAY'));
+
+        i18n.setLocale('it');
+        assert.ok(collectByText(root, '4 settimane').length > 0, 'Italian min-week suffix must be visible');
+        assert.ok(collectByText(completedRoot, i18n.t('therapy.restoreConfirmation')).length > 0, 'Italian restore confirmation must rerender in place');
+        error = errorRoot.findById(`${TherapyPlanner.RIGHTEYE}-error-0`);
+        assert.equal(error.textContent, i18n.t('plannerErrors.COMPLETED_AFTER_TODAY'), 'structured planner error must rerender in the active locale');
+    } finally {
+        global.document = prevDoc;
+    }
+});

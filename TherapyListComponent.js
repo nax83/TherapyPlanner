@@ -380,7 +380,6 @@ function createTherapyListComponent(cardId, type, planner, options) {
 
         dateInput.addEventListener('change', (event) => {
             if (_pendingAction && _pendingAction.kind === 'complete' && _pendingAction.index === index) {
-                _pendingAction.draftDate = event.target.value;
             }
             const nextDate = parseCalendarDate(event.target.value);
             const result = planner.updateDateFor(type, index, nextDate);
@@ -417,6 +416,15 @@ function createTherapyListComponent(cardId, type, planner, options) {
             eye: headerLabel().toLowerCase(),
         }));
         dateInput.setAttribute('max', formatDate(planner.today));
+        dateInput.addEventListener('input', function handleCompletionDraftInput(event) {
+            if (
+                _pendingAction
+                && _pendingAction.kind === 'complete'
+                && _pendingAction.index === index
+            ) {
+                _pendingAction.draftDate = event.target.value;
+            }
+        });
         dateInput.value = _pendingAction && _pendingAction.kind === 'complete' && _pendingAction.index === index
             ? _pendingAction.draftDate
             : formatDate(planner.today);
@@ -467,7 +475,7 @@ function createTherapyListComponent(cardId, type, planner, options) {
 
         const prompt = document.createElement('div');
         prompt.classList.add('small');
-        prompt.textContent = 'Restore this treatment as a planned appointment?';
+        prompt.textContent = t('therapy.restoreConfirmation');
 
         const buttons = document.createElement('div');
         buttons.classList.add('d-flex', 'gap-2');

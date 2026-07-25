@@ -191,12 +191,23 @@ function createPatientScheduleComponent(planner, options) {
   table.appendChild(thead);
   const headerRow = document.createElement('tr');
   thead.appendChild(headerRow);
-  for (const label of [_labels.date, _labels.day, _labels.treatment]) {
-    const th = document.createElement('th');
-    th.setAttribute('scope', 'col');
-    th.textContent = label;
-    headerRow.appendChild(th);
-  }
+  const dateHeader = document.createElement('th');
+  dateHeader.setAttribute('id', 'patient-schedule-date-header');
+  dateHeader.setAttribute('scope', 'col');
+  dateHeader.textContent = _labels.date;
+  headerRow.appendChild(dateHeader);
+
+  const dayHeader = document.createElement('th');
+  dayHeader.setAttribute('id', 'patient-schedule-day-header');
+  dayHeader.setAttribute('scope', 'col');
+  dayHeader.textContent = _labels.day;
+  headerRow.appendChild(dayHeader);
+
+  const treatmentHeader = document.createElement('th');
+  treatmentHeader.setAttribute('id', 'patient-schedule-treatment-header');
+  treatmentHeader.setAttribute('scope', 'col');
+  treatmentHeader.textContent = _labels.treatment;
+  headerRow.appendChild(treatmentHeader);
 
   const tbody = document.createElement('tbody');
   tbody.setAttribute('id', 'patient-schedule-table-body');
@@ -584,6 +595,11 @@ function createPatientScheduleComponent(planner, options) {
     nameLabel.textContent = _labels.patientName + ':';
     nameInput.setAttribute('placeholder', _labels.patientName);
     titleEl.textContent = _labels.title;
+    dateHeader.textContent = _labels.date;
+    dayHeader.textContent = _labels.day;
+    treatmentHeader.textContent = _labels.treatment;
+    emptyMsg.textContent = _labels.empty;
+    footerEl.textContent = _labels.footer;
     printBtn.textContent = _labels.print;
     closeBtn.textContent = _labels.close;
     closeBtn.setAttribute('aria-label', _labels.close);

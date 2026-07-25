@@ -465,6 +465,164 @@ test('patient-schedule-test-8: launch button exists and opens preview', () => {
   });
 });
 
+test('patient-schedule-test-Q11: live locale switch refreshes headers, footer, labels, dates, weekdays, and preserves open overlay state', () => {
+  const { MockDocument, MockWindow } = require('./helpers/mockDom.js');
+  const { createI18n } = require('../I18n.js');
+  const translations = require('../translations.js');
+  const createPatientScheduleComponent = require('../PatientScheduleComponent.js');
+
+  const prevDoc = global.document;
+  const prevWin = global.window;
+  const prevTP = global.TherapyPlanner;
+  const prevRAF = global.requestAnimationFrame;
+  const mockDoc = new MockDocument();
+  const mockWin = new MockWindow(mockDoc);
+
+  global.document = mockDoc;
+  global.window = mockWin;
+  global.TherapyPlanner = TherapyPlanner;
+  global.requestAnimationFrame = mockWin.requestAnimationFrame.bind(mockWin);
+
+  try {
+    const planner = defaultPlanner();
+    const i18n = createI18n({
+      translations,
+      navigator: { language: 'en-GB' },
+      document: mockDoc,
+    });
+    const root = createPatientScheduleComponent(planner, { i18n });
+    mockDoc.body.appendChild(root);
+
+    const languageSelect = mockDoc.createElement('select');
+    languageSelect.setAttribute('id', 'app-language-select');
+    mockDoc.body.appendChild(languageSelect);
+
+    root.findById('patient-schedule-launch-btn').dispatchEvent({ type: 'click', target: root.findById('patient-schedule-launch-btn') });
+    languageSelect.focus();
+    mockDoc.activeElement = languageSelect;
+    i18n.setLocale('de');
+
+    assert.ok(root.findById('patient-schedule-overlay').classList.contains('open'), 'overlay must remain open');
+    assert.equal(
+      mockDoc.activeElement && mockDoc.activeElement.attributes && mockDoc.activeElement.attributes.id,
+      'app-language-select',
+      'focus must remain on the language selector',
+    );
+    assert.equal(root.findById('patient-schedule-date-header').textContent, i18n.t('patientSchedule.date'));
+    assert.equal(root.findById('patient-schedule-day-header').textContent, i18n.t('patientSchedule.day'));
+    assert.equal(root.findById('patient-schedule-treatment-header').textContent, i18n.t('patientSchedule.treatment'));
+    assert.equal(root.findById('patient-schedule-footer').textContent, i18n.t('patientSchedule.footer'));
+    assert.equal(root.findById('patient-schedule-close-btn').textContent, i18n.t('patientSchedule.close'));
+    assert.equal(root.findById('patient-schedule-close-btn').attributes['aria-label'], i18n.t('patientSchedule.close'));
+    assert.ok(root.textContent.includes(i18n.t('therapy.rightEye')), 'translated eye labels must be visible');
+    assert.ok(root.textContent.includes(i18n.formatDate(d(2026, 0, 6))), 'translated date formatting must be visible');
+    assert.ok(root.textContent.includes(i18n.formatWeekday(d(2026, 0, 6))), 'translated weekday formatting must be visible');
+  } finally {
+    global.document = prevDoc;
+    global.window = prevWin;
+    global.TherapyPlanner = prevTP;
+    global.requestAnimationFrame = prevRAF;
+  }
+});
+
+test('patient-schedule-test-Q12: live locale switch refreshes empty state and rerenders structured errors without duplicating the print host', () => {
+  const { createI18n } = require('../I18n.js');
+  const translations = require('../translations.js');
+
+  withPatientMockDom((create, mockDoc) => {
+    const i18n = createI18n({
+      translations,
+      navigator: { language: 'en-GB' },
+      document: mockDoc,
+    });
+    const emptyPlanner = {
+      validateSchedule: () => ({ valid: true }),
+      getPlanByEye: () => [],
+    };
+    const emptyRoot = create(emptyPlanner, { i18n });
+    mockDoc.root.appendChild(emptyRoot);
+
+    const languageSelect = mockDoc.createElement('select');
+    languageSelect.setAttribute('id', 'app-language-select');
+    mockDoc.body.appendChild(languageSelect);
+
+    emptyRoot.findById('patient-schedule-launch-btn').eventListeners.click[0]();
+    languageSelect.focus();
+    i18n.setLocale('it');
+
+    assert.ok(emptyRoot.findById('patient-schedule-empty').textContent.includes(i18n.t('patientSchedule.empty')));
+    assert.ok(emptyRoot.findById('patient-schedule-footer').textContent.includes(i18n.t('patientSchedule.footer')));
+
+    const invalidPlanner = {
+      validateSchedule: () => ({ valid: false, violations: ['broken schedule'] }),
+      getPlanByEye: () => [],
+    };
+    const invalidRoot = create(invalidPlanner, { i18n });
+    mockDoc.root.appendChild(invalidRoot);
+    invalidRoot.findById('patient-schedule-launch-btn').eventListeners.click[0]();
+    const errorEl = invalidRoot.findById('patient-schedule-error');
+    assert.ok(errorEl.textContent.includes('broken schedule'), 'structured error must include technical details');
+
+    i18n.setLocale('de');
+    assert.equal(errorEl.textContent, i18n.t('patientSchedule.errors.scheduleInvalid', { details: 'broken schedule' }));
+    assert.ok(invalidRoot.findById('patient-schedule-overlay').classList.contains('open'), 'error overlay must remain open');
+
+    const hosts = mockDoc.body.children.filter((child) => child.attributes && child.attributes.id === 'patient-schedule-print-host');
+    assert.equal(hosts.length, 1, 'only one print host may exist');
+    assert.equal(mockDoc.body.children.indexOf(hosts[0]) >= 0, true, 'print host must remain directly under body');
+  });
+});
+
+test('patient-schedule-test-Q13: locale switching with an open overlay keeps focus on the language selector', () => {
+  const { MockDocument, MockWindow } = require('./helpers/mockDom.js');
+  const { createI18n } = require('../I18n.js');
+  const translations = require('../translations.js');
+  const createPatientScheduleComponent = require('../PatientScheduleComponent.js');
+
+  const prevDoc = global.document;
+  const prevWin = global.window;
+  const prevTP = global.TherapyPlanner;
+  const prevRAF = global.requestAnimationFrame;
+  const mockDoc = new MockDocument();
+  const mockWin = new MockWindow(mockDoc);
+
+  global.document = mockDoc;
+  global.window = mockWin;
+  global.TherapyPlanner = TherapyPlanner;
+  global.requestAnimationFrame = mockWin.requestAnimationFrame.bind(mockWin);
+
+  try {
+    const planner = defaultPlanner();
+    const i18n = createI18n({
+      translations,
+      navigator: { language: 'en-GB' },
+      document: mockDoc,
+    });
+    const root = createPatientScheduleComponent(planner, { i18n });
+    mockDoc.body.appendChild(root);
+
+    const languageSelect = mockDoc.createElement('select');
+    languageSelect.setAttribute('id', 'app-language-select');
+    mockDoc.body.appendChild(languageSelect);
+
+    root.findById('patient-schedule-launch-btn').dispatchEvent({ type: 'click', target: root.findById('patient-schedule-launch-btn') });
+    languageSelect.focus();
+    i18n.setLocale('de');
+
+    assert.equal(
+      mockDoc.activeElement && mockDoc.activeElement.attributes && mockDoc.activeElement.attributes.id,
+      'app-language-select',
+      'focus must remain on the language selector',
+    );
+    assert.ok(root.findById('patient-schedule-overlay').classList.contains('open'));
+  } finally {
+    global.document = prevDoc;
+    global.window = prevWin;
+    global.TherapyPlanner = prevTP;
+    global.requestAnimationFrame = prevRAF;
+  }
+});
+
 // ── B-9. Current schedule read when opening ────────────────────────────────
 
 test('patient-schedule-test-9: preview reads current planner state at open time, not at create time', () => {
