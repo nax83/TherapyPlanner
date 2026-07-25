@@ -1082,7 +1082,7 @@ class TherapyPlanner {
     if (!normalized) {
       return this._weekdayResult(false, false, previousWeekdays, previousWeekdays, {
         reason: 'INVALID_APPOINTMENT_WEEKDAYS',
-        message: 'validAppointmentWeekdays must be a non-empty array of unique integers between 0 and 6.',
+        message: 'validAppointmentWeekdays must be a non-empty array containing integers between 0 and 6.',
       });
     }
 
@@ -1099,7 +1099,7 @@ class TherapyPlanner {
       this._setWeekdayConfiguration(normalized);
       const fixedKeys = new Set();
       const mutableKeys = this._allPlannedKeys(fixedKeys);
-      this._cascade(snapshot.schedule, fixedKeys, mutableKeys, CASCADE_MODE_ORDINARY);
+      this._cascade(snapshot.schedule, fixedKeys, mutableKeys, CASCADE_MODE_HISTORICAL);
 
       const validation = this.validateSchedule();
       if (!validation.valid) {

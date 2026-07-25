@@ -15,12 +15,19 @@ function fmt(date) {
   ].join('-');
 }
 
-function testCalDiff(dateA, dateB) {
+function calendarDayDiff(dateA, dateB) {
   return Math.round(
     (
       Date.UTC(dateA.getFullYear(), dateA.getMonth(), dateA.getDate()) -
       Date.UTC(dateB.getFullYear(), dateB.getMonth(), dateB.getDate())
     ) / 86400000,
+  );
+}
+
+function createPlannerWithToday(today, config) {
+  return new TherapyPlanner(
+    config || { validAppointmentWeekdays: [2, 3, 4], interEyeGapDays: 14 },
+    { today },
   );
 }
 
@@ -45,6 +52,17 @@ function snapshotWeekdayState(planner) {
   };
 }
 
+function compactPlan(planner) {
+  return [TherapyPlanner.RIGHTEYE, TherapyPlanner.LEFTEYE].map((eye) => (
+    planner.getPlanByEye(eye).map((item) => ({
+      eye,
+      date: fmt(item.plannedDate),
+      status: item.status,
+      dateOrigin: item.dateOrigin,
+    }))
+  ));
+}
+
 function assertAllPlannedOnActiveWeekdays(planner) {
   const active = new Set(planner.getValidAppointmentWeekdays());
 
@@ -55,10 +73,6 @@ function assertAllPlannedOnActiveWeekdays(planner) {
       }
     }
   }
-}
-
-function createPlannerWithToday(today, config) {
-  return new TherapyPlanner(config || { validAppointmentWeekdays: [2, 3, 4], interEyeGapDays: 14 }, { today });
 }
 
 test('weekday-config-A1: constructor exposes configured weekdays and getter is defensive', () => {
@@ -105,6 +119,7 @@ test('weekday-config-B: invalid weekday setter inputs are rejected atomically', 
     const planner = createPlannerWithToday(d(2026, 7, 4));
     const before = snapshotWeekdayState(planner);
     let listenerCalls = 0;
+
     planner.addListener(() => {
       listenerCalls += 1;
     });
@@ -115,6 +130,7 @@ test('weekday-config-B: invalid weekday setter inputs are rejected atomically', 
     assert.equal(result.success, false);
     assert.equal(result.changed, false);
     assert.equal(result.reason, 'INVALID_APPOINTMENT_WEEKDAYS');
+    assert.equal(result.message, 'validAppointmentWeekdays must be a non-empty array containing integers between 0 and 6.');
     assert.deepEqual(result.previousWeekdays, [2, 3, 4]);
     assert.deepEqual(result.weekdays, [2, 3, 4]);
     assert.deepEqual(before, after);
@@ -130,6 +146,7 @@ test('weekday-config-C: equivalent weekday sets are no-ops without recalculation
   const planner = createPlannerWithToday(d(2026, 7, 4));
   const before = snapshotWeekdayState(planner);
   let listenerCalls = 0;
+
   planner.addListener(() => {
     listenerCalls += 1;
   });
@@ -145,25 +162,25 @@ test('weekday-config-C: equivalent weekday sets are no-ops without recalculation
   }
 });
 
-test('weekday-config-D: effective change recalculates planned appointments and notifies once', () => {
-  const planner = createPlannerWithToday(d(2026, 7, 4));
-  let listenerCalls = 0;
+test('weekday-config-D: generated appointments can move earlier under historical weekday replacement', () => {
+  const planner = createPlannerWithToday(d(2026, 6, 25));
+  const beforeRight0 = fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].plannedDate);
+  const beforeLeft0 = fmt(planner.getPlanByEye(TherapyPlanner.LEFTEYE)[0].plannedDate);
 
-  planner.addListener(() => {
-    listenerCalls += 1;
-    assert.deepEqual(planner.getValidAppointmentWeekdays(), [1, 3, 5]);
-    assert.equal(planner.validateSchedule().valid, true);
-  });
-
-  const result = planner.setValidAppointmentWeekdays([5, 1, 3]);
+  const result = planner.setValidAppointmentWeekdays([1, 2, 3, 4]);
+  const afterRight0 = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0];
+  const afterLeft0 = planner.getPlanByEye(TherapyPlanner.LEFTEYE)[0];
 
   assert.equal(result.success, true);
   assert.equal(result.changed, true);
-  assert.deepEqual(result.previousWeekdays, [2, 3, 4]);
-  assert.deepEqual(result.weekdays, [1, 3, 5]);
-  assert.deepEqual(planner.getValidAppointmentWeekdays(), [1, 3, 5]);
-  assert.equal(listenerCalls, 1);
-  assertAllPlannedOnActiveWeekdays(planner);
+  assert.equal(beforeRight0, '2026-07-28');
+  assert.equal(fmt(afterRight0.plannedDate), '2026-07-27');
+  assert.equal(beforeLeft0, '2026-08-11');
+  assert.equal(fmt(afterLeft0.plannedDate), '2026-08-10');
+  assert.equal(afterRight0.dateOrigin, 'generated');
+  assert.equal(afterLeft0.dateOrigin, 'generated');
+  assert.equal([1, 2, 3, 4].includes(afterRight0.plannedDate.getDay()), true);
+  assert.equal([1, 2, 3, 4].includes(afterLeft0.plannedDate.getDay()), true);
   assert.equal(planner.validateSchedule().valid, true);
 });
 
@@ -184,29 +201,105 @@ test('weekday-config-E: completed history remains unchanged on removed weekdays 
   assert.equal(planner.validateSchedule().valid, true);
 });
 
-test('weekday-config-F: confirmed anchors remain when eligible and are rescheduled when their weekday is removed', () => {
-  const eligible = createPlannerWithToday(d(2026, 6, 25));
-  eligible.updateDateFor(TherapyPlanner.RIGHTEYE, 1, d(2026, 8, 2));
-  const beforeEligible = fmt(eligible.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate);
+test('weekday-config-F: eligible confirmed cross-eye anchor remains fixed and conflicting generated appointment moves around it', () => {
+  const control = createPlannerWithToday(d(2026, 6, 25));
+  control.setValidAppointmentWeekdays([1, 3, 5]);
 
-  let result = eligible.setValidAppointmentWeekdays([2, 3, 4, 5]);
+  const anchored = createPlannerWithToday(d(2026, 6, 25));
+  const updateResult = anchored.updateDateFor(TherapyPlanner.RIGHTEYE, 1, d(2026, 8, 2));
+  const beforeConfirmed = anchored.getPlanByEye(TherapyPlanner.RIGHTEYE)[1];
+  const result = anchored.setValidAppointmentWeekdays([1, 3, 5]);
+  const afterConfirmed = anchored.getPlanByEye(TherapyPlanner.RIGHTEYE)[1];
+  const conflictingLeft = anchored.getPlanByEye(TherapyPlanner.LEFTEYE)[1];
+
+  assert.equal(updateResult.success, true);
   assert.equal(result.success, true);
-  assert.equal(fmt(eligible.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate), beforeEligible);
-  assert.equal(eligible.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].dateOrigin, 'confirmed');
-
-  const removed = createPlannerWithToday(d(2026, 6, 25));
-  removed.updateDateFor(TherapyPlanner.RIGHTEYE, 1, d(2026, 8, 1));
-  const oldRemoved = fmt(removed.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate);
-
-  result = removed.setValidAppointmentWeekdays([1, 3, 5]);
-  assert.equal(result.success, true);
-  assert.notEqual(fmt(removed.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate), oldRemoved);
-  assert.deepEqual([1, 3, 5].includes(removed.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate.getDay()), true);
-  assert.equal(removed.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].dateOrigin, 'confirmed');
-  assert.equal(removed.validateSchedule().valid, true);
+  assert.equal(fmt(beforeConfirmed.plannedDate), '2026-09-02');
+  assert.equal(fmt(afterConfirmed.plannedDate), '2026-09-02');
+  assert.equal(afterConfirmed.dateOrigin, 'confirmed');
+  assert.equal(fmt(control.getPlanByEye(TherapyPlanner.LEFTEYE)[1].plannedDate), '2026-09-07');
+  assert.equal(fmt(conflictingLeft.plannedDate), '2026-09-16');
+  assert.equal(conflictingLeft.dateOrigin, 'generated');
+  assert.equal(calendarDayDiff(conflictingLeft.plannedDate, afterConfirmed.plannedDate) >= 14, true);
+  assert.equal(anchored.validateSchedule().valid, true);
 });
 
-test('weekday-config-G: sparse weekday sets keep cross-eye gaps valid', () => {
+test('weekday-config-G: confirmed appointment on a removed weekday moves forward without moving backward in time', () => {
+  const planner = createPlannerWithToday(d(2026, 6, 25));
+  const updateResult = planner.updateDateFor(TherapyPlanner.RIGHTEYE, 1, d(2026, 8, 1));
+  const beforeConfirmed = fmt(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1].plannedDate);
+  const result = planner.setValidAppointmentWeekdays([1, 3, 5]);
+  const afterConfirmed = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1];
+
+  assert.equal(updateResult.success, true);
+  assert.equal(result.success, true);
+  assert.equal(beforeConfirmed, '2026-09-01');
+  assert.equal(fmt(afterConfirmed.plannedDate), '2026-09-02');
+  assert.notEqual(fmt(afterConfirmed.plannedDate), beforeConfirmed);
+  assert.equal(calendarDayDiff(afterConfirmed.plannedDate, d(2026, 8, 1)) >= 0, true);
+  assert.equal([1, 3, 5].includes(afterConfirmed.plannedDate.getDay()), true);
+  assert.equal(afterConfirmed.dateOrigin, 'confirmed');
+  assert.equal(planner.validateSchedule().valid, true);
+});
+
+test('weekday-config-H: multiple confirmed candidates remain deterministic across equivalent weekday inputs', () => {
+  const runScenario = (input) => {
+    const planner = createPlannerWithToday(d(2026, 6, 25));
+    assert.equal(planner.updateDateFor(TherapyPlanner.RIGHTEYE, 1, d(2026, 8, 2)).success, true);
+    assert.equal(planner.updateDateFor(TherapyPlanner.LEFTEYE, 1, d(2026, 8, 16)).success, true);
+
+    const result = planner.setValidAppointmentWeekdays(input);
+    return {
+      result,
+      plan: compactPlan(planner),
+    };
+  };
+
+  const canonical = runScenario([1, 3, 5]);
+  const duplicateOrder = runScenario([5, 1, 3, 3]);
+
+  assert.equal(canonical.result.success, true);
+  assert.equal(duplicateOrder.result.success, true);
+  assert.deepEqual(canonical.result.weekdays, [1, 3, 5]);
+  assert.deepEqual(duplicateOrder.result.weekdays, [1, 3, 5]);
+  assert.deepEqual(canonical.plan, duplicateOrder.plan);
+});
+
+test('weekday-config-I: predecessor infeasibility demotes a same-eye confirmed successor and moves it forward', () => {
+  const planner = createPlannerWithToday(d(2026, 6, 25));
+  const updateResult = planner.updateDateFor(TherapyPlanner.RIGHTEYE, 2, d(2026, 8, 23));
+  const originalScheduleMutable = planner._scheduleMutable;
+
+  planner._scheduleMutable = function scheduleMutableWithLatePredecessor(type, i, finalized, mode, snapshot) {
+    if (type === TherapyPlanner.RIGHTEYE && i === 1 && mode === 'historical') {
+      const session = this.schedule[type][i];
+      session.plannedDate = d(2026, 8, 3);
+      session.status = TherapyPlanner.STATUS_PLANNED;
+      session.dateOrigin = 'generated';
+      return;
+    }
+
+    return originalScheduleMutable.call(this, type, i, finalized, mode, snapshot);
+  };
+
+  const result = planner.setValidAppointmentWeekdays([3, 4]);
+  planner._scheduleMutable = originalScheduleMutable;
+
+  const predecessor = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[1];
+  const successor = planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[2];
+
+  assert.equal(updateResult.success, true);
+  assert.equal(result.success, true);
+  assert.equal(updateResult.changedAppointments.some((item) => item.index === 2 && item.type === TherapyPlanner.RIGHTEYE), true);
+  assert.equal(fmt(predecessor.plannedDate), '2026-09-03');
+  assert.equal(fmt(successor.plannedDate), '2026-10-01');
+  assert.equal(successor.dateOrigin, 'confirmed');
+  assert.equal([3, 4].includes(successor.plannedDate.getDay()), true);
+  assert.equal(calendarDayDiff(successor.plannedDate, predecessor.plannedDate) >= successor.minWeeks * 7, true);
+  assert.equal(planner.validateSchedule().valid, true);
+});
+
+test('weekday-config-J: sparse weekday sets still respect cross-eye gaps and same-eye minimum intervals', () => {
   const planner = createPlannerWithToday(d(2026, 7, 4));
   const result = planner.setValidAppointmentWeekdays([2]);
 
@@ -217,23 +310,13 @@ test('weekday-config-G: sparse weekday sets keep cross-eye gaps valid', () => {
 
   const right = planner.getPlanByEye(TherapyPlanner.RIGHTEYE);
   const left = planner.getPlanByEye(TherapyPlanner.LEFTEYE);
-  assert.equal(Math.abs(testCalDiff(left[0].plannedDate, right[0].plannedDate)) >= 14, true);
-  assert.equal(Math.abs(testCalDiff(left[1].plannedDate, right[1].plannedDate)) >= 14, true);
+  assert.equal(Math.abs(calendarDayDiff(left[0].plannedDate, right[0].plannedDate)) >= 14, true);
+  assert.equal(Math.abs(calendarDayDiff(left[1].plannedDate, right[1].plannedDate)) >= 14, true);
+  assert.equal(calendarDayDiff(right[1].plannedDate, right[0].plannedDate) >= right[1].minWeeks * 7, true);
+  assert.equal(calendarDayDiff(right[2].plannedDate, right[1].plannedDate) >= right[2].minWeeks * 7, true);
 });
 
-test('weekday-config-H: sparse weekday sets still respect same-eye minimum intervals', () => {
-  const planner = createPlannerWithToday(d(2026, 7, 4));
-  const result = planner.setValidAppointmentWeekdays([2]);
-
-  assert.equal(result.success, true);
-  assert.equal(result.changed, true);
-
-  const right = planner.getPlanByEye(TherapyPlanner.RIGHTEYE);
-  assert.equal(testCalDiff(right[1].plannedDate, right[0].plannedDate) >= right[1].minWeeks * 7, true);
-  assert.equal(testCalDiff(right[2].plannedDate, right[1].plannedDate) >= right[2].minWeeks * 7, true);
-});
-
-test('weekday-config-I: DST-sensitive weekday changes preserve calendar-based dates across spring and autumn transitions', () => {
+test('weekday-config-K: DST-sensitive weekday changes preserve calendar-based dates across spring and autumn transitions', () => {
   const springPlanner = createPlannerWithToday(d(2026, 2, 10));
   let result = springPlanner.setValidAppointmentWeekdays([1]);
   assert.equal(result.success, true);
@@ -251,33 +334,38 @@ test('weekday-config-I: DST-sensitive weekday changes preserve calendar-based da
   );
 });
 
-test('weekday-config-J: date guidance uses the active weekday set immediately after a successful change', () => {
+test('weekday-config-L: date guidance uses the active weekday set immediately after a successful change', () => {
   const planner = createPlannerWithToday(d(2026, 6, 25), {
     validAppointmentWeekdays: [2, 3, 4],
     interEyeGapDays: 14,
   });
   const before = planner.getDateGuidanceFor(TherapyPlanner.RIGHTEYE, 1);
+  const beforeSuggestedDate = fmt(before.suggestedEarliestDate);
+  const beforeSuggestedWeekday = before.suggestedEarliestDate.getDay();
 
   const result = planner.setValidAppointmentWeekdays([1, 3, 5]);
   const after = planner.getDateGuidanceFor(TherapyPlanner.RIGHTEYE, 1);
 
   assert.equal(result.success, true);
-  assert.equal(before.suggestedEarliestDate.getDay(), 2);
+  assert.equal(beforeSuggestedDate, '2026-08-25');
+  assert.equal(beforeSuggestedWeekday, 2);
+  assert.equal(fmt(after.suggestedEarliestDate), '2026-08-24');
   assert.equal([1, 3, 5].includes(after.suggestedEarliestDate.getDay()), true);
   assert.equal([2, 4].includes(after.suggestedEarliestDate.getDay()), false);
 });
 
-test('weekday-config-K: recalculation failure rolls back weekdays and schedules atomically', () => {
+test('weekday-config-M: recalculation failure rolls back weekdays and schedules atomically under historical mode', () => {
   const planner = createPlannerWithToday(d(2026, 7, 4));
   const before = snapshotWeekdayState(planner);
   let listenerCalls = 0;
+
   planner.addListener(() => {
     listenerCalls += 1;
   });
 
   const originalCascade = planner._cascade;
   planner._cascade = function failingCascade(snapshot, fixedKeys, mutableKeys, mode) {
-    if (this.getValidAppointmentWeekdays().join(',') === '1,3,5') {
+    if (mode === 'historical' && this.getValidAppointmentWeekdays().join(',') === '1,3,5') {
       throw new Error('forced weekday recalculation failure');
     }
 
@@ -295,10 +383,15 @@ test('weekday-config-K: recalculation failure rolls back weekdays and schedules 
   assert.deepEqual(snapshotWeekdayState(planner), before);
   assert.equal(listenerCalls, 0);
   assert.equal(planner.getPlanByEye(TherapyPlanner.RIGHTEYE)[0].plannedDate instanceof Date, true);
+  assert.equal(planner.getPlanByEye(TherapyPlanner.LEFTEYE)[0].plannedDate instanceof Date, true);
   assert.equal(planner.validateSchedule().valid, true);
+
+  const recovery = planner.setValidAppointmentWeekdays([1, 3, 5]);
+  assert.equal(recovery.success, true);
+  assert.deepEqual(planner.getValidAppointmentWeekdays(), [1, 3, 5]);
 });
 
-test('weekday-config-L: listeners observe the final valid state exactly once', () => {
+test('weekday-config-N: listeners observe the final valid state exactly once', () => {
   const planner = createPlannerWithToday(d(2026, 7, 4));
   const observations = [];
 
