@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const translations = require('../translations.js');
-const { createI18n, I18N_STORAGE_KEY } = require('../I18n.js');
+const { createI18n, getSafeStorage, I18N_STORAGE_KEY } = require('../I18n.js');
 const { MockDocument, createMockStorage } = require('./helpers/mockDom.js');
 
 test('i18n: translation lookup, fallback, interpolation, and formatting work across locales', () => {
@@ -85,4 +85,26 @@ test('i18n: storage failures do not break initialisation or locale switching', (
   assert.equal(i18n.getLocale(), 'en');
   assert.doesNotThrow(() => i18n.setLocale('de'));
   assert.equal(i18n.getLocale(), 'de');
+});
+
+test('i18n: safe storage acquisition failure falls back to null storage', () => {
+  const storage = getSafeStorage(() => {
+    throw new Error('blocked');
+  });
+
+  assert.equal(storage, null);
+
+  const document = new MockDocument();
+  const i18n = createI18n({
+    translations,
+    storage,
+    navigator: {
+      language: 'de-DE',
+    },
+    document,
+  });
+
+  assert.equal(i18n.getLocale(), 'de');
+  assert.doesNotThrow(() => i18n.setLocale('it'));
+  assert.equal(i18n.getLocale(), 'it');
 });

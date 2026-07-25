@@ -564,7 +564,7 @@ test('guidance-integration-1: planned rows show suggestedEarliestDate in suggest
         // right[0]: index=0, suggestedEarliestDate should be today (Jan6, no left conflicts)
         const g0 = planner.getDateGuidanceFor(TherapyPlanner.RIGHTEYE, 0);
         assert.ok(g0.success && g0.editable);
-        const expected0 = g0.suggestedEarliestDate.toLocaleDateString('it-IT', {
+        const expected0 = g0.suggestedEarliestDate.toLocaleDateString('en-GB', {
             weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
         });
         assert.ok(
@@ -619,7 +619,7 @@ test('guidance-integration-4: mutation in one eye refreshes suggestion in the ot
         // Get initial left[0] suggestion
         const g1 = planner.getDateGuidanceFor(TherapyPlanner.LEFTEYE, 0);
         assert.ok(g1.success && g1.editable);
-        const oldSuggestion = g1.suggestedEarliestDate.toLocaleDateString('it-IT', {
+        const oldSuggestion = g1.suggestedEarliestDate.toLocaleDateString('en-GB', {
             weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
         });
         assert.ok(collectByText(left, oldSuggestion).length > 0, 'left must initially show old suggestion');
@@ -632,7 +632,7 @@ test('guidance-integration-4: mutation in one eye refreshes suggestion in the ot
 
         // left[0] suggestion must now be Jan27 (Jan13+14)
         const g2 = planner.getDateGuidanceFor(TherapyPlanner.LEFTEYE, 0);
-        const newSuggestion = g2.suggestedEarliestDate.toLocaleDateString('it-IT', {
+        const newSuggestion = g2.suggestedEarliestDate.toLocaleDateString('en-GB', {
             weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
         });
         assert.ok(collectByText(left, newSuggestion).length > 0, 'left must show updated suggestion');

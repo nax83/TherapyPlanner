@@ -229,9 +229,18 @@ function createI18n(options) {
   };
 }
 
+function getSafeStorage(getStorage) {
+  try {
+    return typeof getStorage === 'function' ? getStorage() : getStorage;
+  } catch (error) {
+    return null;
+  }
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     createI18n,
+    getSafeStorage,
     I18N_SUPPORTED_LOCALES,
     I18N_STORAGE_KEY,
   };

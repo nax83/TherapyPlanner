@@ -40,9 +40,17 @@
   </div>
   <script>
     (async () => {
+      let preferenceStorage = null;
+
+      try {
+        preferenceStorage = window.localStorage;
+      } catch (error) {
+        preferenceStorage = null;
+      }
+
       const i18n = createI18n({
         translations: THERAPY_PLANNER_TRANSLATIONS,
-        storage: window.localStorage,
+        storage: preferenceStorage,
         navigator: window.navigator,
         document: window.document,
       });

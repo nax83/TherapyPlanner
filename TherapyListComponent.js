@@ -72,15 +72,62 @@ function createTherapyListComponent(cardId, type, planner, options) {
     }
 
     function translatePlannerFeedback(result, fallbackKey) {
-        if (result && result.reason && i18n && typeof i18n.has === 'function' && i18n.has(`plannerErrors.${result.reason}`)) {
-            return i18n.t(`plannerErrors.${result.reason}`);
+        return {
+            reason: result && result.reason ? result.reason : null,
+            technicalMessage: result && result.message ? result.message : null,
+            fallbackKey: fallbackKey || null,
+        };
+    }
+
+    function resolveMessage(message) {
+        if (message == null) {
+            return null;
         }
 
-        if (result && result.message) {
-            return result.message;
+        if (typeof message === 'string') {
+            return message;
         }
 
-        return t(fallbackKey);
+        if (
+            message.reason
+            && i18n
+            && typeof i18n.has === 'function'
+            && i18n.has(`plannerErrors.${message.reason}`)
+        ) {
+            return i18n.t(`plannerErrors.${message.reason}`);
+        }
+
+        if (message.technicalMessage) {
+            return message.technicalMessage;
+        }
+
+        if (message.fallbackKey) {
+            return t(message.fallbackKey);
+        }
+
+        return null;
+    }
+
+    function formatSuggestionDate(date) {
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+            return EM_DASH;
+        }
+
+        if (i18n && typeof i18n.formatDate === 'function') {
+            return i18n.formatDate(date, {
+                weekday: 'short',
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+            });
+        }
+
+        return date.toLocaleDateString('en-GB', {
+            weekday: 'short',
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+        });
     }
 
     function msgKey(index) {
@@ -245,7 +292,7 @@ function createTherapyListComponent(cardId, type, planner, options) {
         node.setAttribute('role', kind === 'error' ? 'alert' : 'status');
         node.setAttribute('aria-live', kind === 'error' ? 'assertive' : 'polite');
         node.classList.add('mt-1', 'small', kind === 'error' ? 'text-danger' : 'text-warning');
-        node.textContent = text;
+        node.textContent = resolveMessage(text);
         col.appendChild(node);
     }
 
@@ -269,7 +316,7 @@ function createTherapyListComponent(cardId, type, planner, options) {
         TherapyPlanner.MINWEEKS.forEach((minWeek) => {
             const option = document.createElement('option');
             option.setAttribute('value', String(minWeek));
-            option.textContent = `${minWeek} weeks`;
+            option.textContent = `${minWeek} ${t('therapy.weeksSuffix')}`;
             if (minWeek === item.minWeeks) option.selected = true;
             select.appendChild(option);
         });
@@ -302,9 +349,7 @@ function createTherapyListComponent(cardId, type, planner, options) {
 
         const guidance = planner.getDateGuidanceFor(type, index);
         if (guidance.success && guidance.editable && guidance.suggestedEarliestDate instanceof Date) {
-            col.textContent = guidance.suggestedEarliestDate.toLocaleDateString('it-IT', {
-                weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
-            });
+            col.textContent = formatSuggestionDate(guidance.suggestedEarliestDate);
         } else {
             col.textContent = EM_DASH;
         }
@@ -334,6 +379,9 @@ function createTherapyListComponent(cardId, type, planner, options) {
         }
 
         dateInput.addEventListener('change', (event) => {
+            if (_pendingAction && _pendingAction.kind === 'complete' && _pendingAction.index === index) {
+                _pendingAction.draftDate = event.target.value;
+            }
             const nextDate = parseCalendarDate(event.target.value);
             const result = planner.updateDateFor(type, index, nextDate);
             if (!result || result.success === false) {
@@ -369,7 +417,9 @@ function createTherapyListComponent(cardId, type, planner, options) {
             eye: headerLabel().toLowerCase(),
         }));
         dateInput.setAttribute('max', formatDate(planner.today));
-        dateInput.value = formatDate(planner.today);
+        dateInput.value = _pendingAction && _pendingAction.kind === 'complete' && _pendingAction.index === index
+            ? _pendingAction.draftDate
+            : formatDate(planner.today);
 
         const buttons = document.createElement('div');
         buttons.classList.add('d-flex', 'gap-2', 'mt-2');
@@ -403,7 +453,10 @@ function createTherapyListComponent(cardId, type, planner, options) {
         dateCol.appendChild(label);
         dateCol.appendChild(dateInput);
         dateCol.appendChild(buttons);
-        queueFocus(`${type}-complete-date-${index}`);
+        if (_pendingAction && _pendingAction.kind === 'complete' && _pendingAction.index === index && _pendingAction.requestFocus) {
+            queueFocus(`${type}-complete-date-${index}`);
+            _pendingAction.requestFocus = false;
+        }
     }
 
     function buildRestoreConfirmation(index, actionCol) {
@@ -500,7 +553,12 @@ function createTherapyListComponent(cardId, type, planner, options) {
         }));
         button.textContent = t('therapy.markAsCompleted');
         button.addEventListener('click', () => {
-            _pendingAction = { kind: 'complete', index };
+            _pendingAction = {
+                kind: 'complete',
+                index,
+                draftDate: formatDate(planner.today),
+                requestFocus: true,
+            };
             queueFocus(`${type}-complete-date-${index}`);
             buildPlan();
         });
