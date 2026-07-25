@@ -623,6 +623,107 @@ test('patient-schedule-test-Q13: locale switching with an open overlay keeps foc
   }
 });
 
+test('patient-schedule-test-Q14: invalid real planner preview retranslates error without rebuilding rows on locale change', () => {
+  const { createI18n } = require('../I18n.js');
+  const translations = require('../translations.js');
+
+  withPatientMockDom((create, mockDoc) => {
+    const planner = defaultPlanner();
+    planner.schedule[TherapyPlanner.RIGHTEYE][0].plannedDate = null;
+
+    const validation = planner.validateSchedule();
+    assert.equal(validation.valid, false, 'planner must be genuinely invalid');
+    const details = (validation.violations || []).join('; ');
+
+    const i18n = createI18n({
+      translations,
+      navigator: { language: 'en-GB' },
+      document: mockDoc,
+    });
+    const root = create(planner, { i18n });
+    mockDoc.root.appendChild(root);
+
+    const languageSelect = mockDoc.createElement('select');
+    languageSelect.setAttribute('id', 'app-language-select');
+    mockDoc.body.appendChild(languageSelect);
+
+    root.findById('patient-schedule-launch-btn').eventListeners.click[0]();
+
+    const overlay = root.findById('patient-schedule-overlay');
+    const printBtn = root.findById('patient-schedule-print-btn');
+    const errorEl = root.findById('patient-schedule-error');
+    const tbody = root.findById('patient-schedule-table-body');
+
+    assert.ok(!errorEl.classList.contains('hidden'), 'error must be visible');
+    assert.ok(overlay.classList.contains('open'), 'overlay must stay open');
+    assert.ok(Object.prototype.hasOwnProperty.call(printBtn.attributes, 'disabled'), 'print must stay disabled');
+    assert.equal(tbody.children.length, 0, 'table must remain empty');
+
+    languageSelect.focus();
+    assert.doesNotThrow(() => i18n.setLocale('de'));
+
+    assert.ok(!errorEl.classList.contains('hidden'), 'error must remain visible after locale change');
+    assert.ok(overlay.classList.contains('open'), 'overlay must remain open after locale change');
+    assert.ok(Object.prototype.hasOwnProperty.call(printBtn.attributes, 'disabled'), 'print must remain disabled after locale change');
+    assert.equal(tbody.children.length, 0, 'table must remain empty after locale change');
+    assert.equal(
+      errorEl.textContent,
+      i18n.t('patientSchedule.errors.scheduleInvalid', { details }),
+      'translated invalid-schedule error must retain technical details',
+    );
+  });
+});
+
+test('patient-schedule-test-Q15: build failure preview retranslates error without retrying row creation on locale change', () => {
+  const { createI18n } = require('../I18n.js');
+  const translations = require('../translations.js');
+
+  withPatientMockDom((create, mockDoc) => {
+    const invalidDateMessage = 'Invalid appointment date';
+    const plannedDate = new Date('invalid-date');
+    const buildFailurePlanner = {
+      today: d(2026, 0, 6),
+      validateSchedule: () => ({ valid: true }),
+      getPlanByEye: () => ([
+        {
+          plannedDate,
+          status: TherapyPlanner.STATUS_PLANNED,
+          type: TherapyPlanner.RIGHTEYE,
+        },
+      ]),
+    };
+
+    const i18n = createI18n({
+      translations,
+      navigator: { language: 'en-GB' },
+      document: mockDoc,
+    });
+    const root = create(buildFailurePlanner, { i18n });
+    mockDoc.root.appendChild(root);
+
+    root.findById('patient-schedule-launch-btn').eventListeners.click[0]();
+
+    const overlay = root.findById('patient-schedule-overlay');
+    const printBtn = root.findById('patient-schedule-print-btn');
+    const errorEl = root.findById('patient-schedule-error');
+    const tbody = root.findById('patient-schedule-table-body');
+
+    assert.ok(!errorEl.classList.contains('hidden'), 'build-failure error must be visible');
+    assert.ok(overlay.classList.contains('open'), 'build-failure overlay must stay open');
+    assert.ok(Object.prototype.hasOwnProperty.call(printBtn.attributes, 'disabled'), 'print must stay disabled after build failure');
+    assert.equal(tbody.children.length, 0, 'no rows must be rendered for build failure');
+    assert.ok(errorEl.textContent.startsWith(i18n.t('patientSchedule.errors.buildFailed', { details: '' }).trim()), 'English build-failure prefix must be visible');
+
+    assert.doesNotThrow(() => i18n.setLocale('it'));
+
+    assert.ok(!errorEl.classList.contains('hidden'), 'build-failure error must remain visible after locale change');
+    assert.ok(overlay.classList.contains('open'), 'build-failure overlay must remain open after locale change');
+    assert.ok(Object.prototype.hasOwnProperty.call(printBtn.attributes, 'disabled'), 'print must remain disabled after locale change');
+    assert.equal(tbody.children.length, 0, 'no rows must be created after locale change');
+    assert.ok(errorEl.textContent.startsWith(i18n.t('patientSchedule.errors.buildFailed', { details: '' }).trim()), 'localized build-failure prefix must be visible');
+  });
+});
+
 // ── B-9. Current schedule read when opening ────────────────────────────────
 
 test('patient-schedule-test-9: preview reads current planner state at open time, not at create time', () => {

@@ -379,8 +379,6 @@ function createTherapyListComponent(cardId, type, planner, options) {
         }
 
         dateInput.addEventListener('change', (event) => {
-            if (_pendingAction && _pendingAction.kind === 'complete' && _pendingAction.index === index) {
-            }
             const nextDate = parseCalendarDate(event.target.value);
             const result = planner.updateDateFor(type, index, nextDate);
             if (!result || result.success === false) {

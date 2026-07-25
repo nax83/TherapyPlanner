@@ -610,6 +610,10 @@ function createPatientScheduleComponent(planner, options) {
       return;
     }
 
+    if (!_printEnabled) {
+      return;
+    }
+
     _setGeneratedOn();
     _renderRows(_buildList({
       [TherapyPlanner.RIGHTEYE]: planner.getPlanByEye(TherapyPlanner.RIGHTEYE),
