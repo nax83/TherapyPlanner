@@ -97,6 +97,21 @@ When the weekday set changes successfully:
 - eligible future confirmed anchors may remain fixed, while ineligible ones are reevaluated through the existing scheduling rules;
 - date guidance and schedule validation immediately use the new active weekday set.
 
+## Clinic weekday settings UI
+
+The toolbar includes a `Clinic days` action between the language selector and the privacy notice.
+
+- All seven weekdays are available.
+- Weekday values use JavaScript `Date.getDay()` numbering: `0` Sunday, `1` Monday, `2` Tuesday, `3` Wednesday, `4` Thursday, `5` Friday, `6` Saturday.
+- At least one clinic day must remain selected.
+- Applying changes recalculates mutable planned appointments immediately for the current page session.
+- Completed treatments remain historical and are not rewritten.
+- Eligible future confirmed appointments remain fixed when the current engine rules still allow them.
+- The setting is runtime-only for the current page session.
+- Reloading the page restores the configured defaults.
+- No clinic-day preference is persisted locally.
+- Locale preference persistence remains unchanged and still uses `therapyPlanner.preferences.v1`.
+
 ## Appointment Model
 
 Each appointment has:

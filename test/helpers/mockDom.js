@@ -144,12 +144,17 @@ class MockElement {
     const targetValue = event && event.target && event.target.value !== undefined
       ? event.target.value
       : undefined;
-    event.target = this;
+    if (!event.target) {
+      event.target = this;
+    }
     event.currentTarget = this;
     if (this.tagName === 'SELECT' && event.type === 'change' && targetValue !== undefined) {
       this.value = targetValue;
     }
     (this.eventListeners[event.type] || []).forEach((handler) => handler.call(this, event));
+    if (event.bubbles && !event.cancelBubble && this.parentNode) {
+      this.parentNode.dispatchEvent(event);
+    }
     return !event.defaultPrevented;
   }
 
@@ -353,9 +358,15 @@ function createKeydownEvent(key) {
   return {
     type: 'keydown',
     key,
+    bubbles: true,
+    cancelBubble: false,
+    shiftKey: false,
     defaultPrevented: false,
     preventDefault() {
       this.defaultPrevented = true;
+    },
+    stopPropagation() {
+      this.cancelBubble = true;
     },
   };
 }
