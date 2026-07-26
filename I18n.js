@@ -67,19 +67,6 @@ function createI18n(options) {
     });
   }
 
-  function safeParsePreferences(rawValue) {
-    if (typeof rawValue !== 'string') {
-      return {};
-    }
-
-    try {
-      const parsed = JSON.parse(rawValue);
-      return parsed && typeof parsed === 'object' ? parsed : {};
-    } catch (error) {
-      return {};
-    }
-  }
-
   function readPreferences() {
     if (preferenceStore && typeof preferenceStore.read === 'function') {
       return preferenceStore.read();

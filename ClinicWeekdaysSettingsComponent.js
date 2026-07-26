@@ -4,7 +4,7 @@ const DEFAULT_CLINIC_WEEKDAY_TRANSLATIONS = {
     title: 'Clinic treatment days',
     intro: 'Choose the weekdays on which treatment appointments may be scheduled.',
     fieldsetLegend: 'Available clinic days',
-    runtimeNote: 'Changes are stored in this browser and reused after reload. Clearing browser storage restores the configured defaults.',
+    runtimeNote: 'When browser storage is available, changes are stored and reused after reload. Clearing browser storage restores the configured defaults.',
     cancel: 'Cancel',
     apply: 'Apply',
     weekdays: {

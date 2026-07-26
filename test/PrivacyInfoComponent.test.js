@@ -388,3 +388,42 @@ test('privacy: disclosure text covers persisted language and clinic weekdays in 
     assert.ok(dialogText().includes('stati dei trattamenti'));
   }, { windowObject: { localStorage: storage } });
 });
+
+test('privacy: unavailable-storage wording covers both locale and clinic weekdays in en, de and it, including fallback english', () => {
+  assert.equal(
+    translations.en.privacy.storedPreference.unavailable,
+    'If browser storage is unavailable, the selected interface language and clinic weekdays remain active only for the current page session.',
+  );
+  assert.ok(translations.en.privacy.storedPreference.unavailable.includes('interface language'));
+  assert.ok(translations.en.privacy.storedPreference.unavailable.includes('clinic weekdays'));
+
+  assert.equal(
+    translations.de.privacy.storedPreference.unavailable,
+    'Wenn der Browserspeicher nicht verfügbar ist, bleiben die ausgewählte Sprache der Benutzeroberfläche und die gewählten Behandlungstage nur während der aktuellen Seitensitzung aktiv.',
+  );
+  assert.ok(translations.de.privacy.storedPreference.unavailable.includes('Sprache der Benutzeroberfläche'));
+  assert.ok(translations.de.privacy.storedPreference.unavailable.includes('Behandlungstage'));
+
+  assert.equal(
+    translations.it.privacy.storedPreference.unavailable,
+    'Se la memoria del browser non è disponibile, la lingua dell’interfaccia e i giorni della clinica selezionati rimangono attivi solo durante la sessione corrente della pagina.',
+  );
+  assert.ok(translations.it.privacy.storedPreference.unavailable.includes('lingua dell’interfaccia'));
+  assert.ok(translations.it.privacy.storedPreference.unavailable.includes('giorni della clinica'));
+
+  withMockEnvironment((mockDocument) => {
+    const root = createPrivacyInfoComponent({});
+    const launchButton = root.findById('privacy-info-launch-btn');
+    mockDocument.body.appendChild(root);
+    launchButton.dispatchEvent(createClickEvent());
+
+    const dialogText = root.findById('privacy-info-dialog').textContent;
+    assert.ok(dialogText.includes('selected interface language'));
+    assert.ok(dialogText.includes('clinic weekdays'));
+    assert.ok(
+      dialogText.includes(
+        'If browser storage is unavailable, the selected interface language and clinic weekdays remain active only for the current page session.',
+      ),
+    );
+  });
+});

@@ -25,7 +25,7 @@ const THERAPY_PLANNER_TRANSLATIONS = {
         title: 'Information stored on this device',
         beforeKey: 'The application stores only your interface language and selected clinic weekdays in this browser under the following key:',
         afterKey: 'No patient name, appointment, treatment status or printed document is stored under this key.',
-        unavailable: 'If browser storage is unavailable, the language selection remains active only for the current page session.',
+        unavailable: 'If browser storage is unavailable, the selected interface language and clinic weekdays remain active only for the current page session.',
       },
       network: {
         title: 'Network requests',
@@ -49,7 +49,7 @@ const THERAPY_PLANNER_TRANSLATIONS = {
       title: 'Clinic treatment days',
       intro: 'Choose the weekdays on which treatment appointments may be scheduled.',
       fieldsetLegend: 'Available clinic days',
-      runtimeNote: 'Changes are stored in this browser and reused after reload. Clearing browser storage restores the configured defaults.',
+      runtimeNote: 'When browser storage is available, changes are stored and reused after reload. Clearing browser storage restores the configured defaults.',
       cancel: 'Cancel',
       apply: 'Apply',
       weekdays: {
@@ -168,7 +168,7 @@ const THERAPY_PLANNER_TRANSLATIONS = {
         title: 'Auf diesem Gerät gespeicherte Informationen',
         beforeKey: 'Die Anwendung speichert in diesem Browser nur die ausgewählte Sprache der Benutzeroberfläche und die gewählten Behandlungstage unter dem folgenden Schlüssel:',
         afterKey: 'Unter diesem Schlüssel werden keine Patientennamen, Termine, Behandlungsstatus oder gedruckten Dokumente gespeichert.',
-        unavailable: 'Wenn der Browserspeicher nicht verfügbar ist, bleibt die Sprachauswahl nur während der aktuellen Seitensitzung aktiv.',
+        unavailable: 'Wenn der Browserspeicher nicht verfügbar ist, bleiben die ausgewählte Sprache der Benutzeroberfläche und die gewählten Behandlungstage nur während der aktuellen Seitensitzung aktiv.',
       },
       network: {
         title: 'Netzwerkanfragen',
@@ -192,7 +192,7 @@ const THERAPY_PLANNER_TRANSLATIONS = {
       title: 'Behandlungstage der Klinik',
       intro: 'Wählen Sie die Wochentage aus, an denen Behandlungstermine geplant werden dürfen.',
       fieldsetLegend: 'Verfügbare Behandlungstage',
-      runtimeNote: 'Änderungen werden in diesem Browser gespeichert und nach dem Neuladen wiederverwendet. Das Löschen des Browser-Speichers stellt die konfigurierten Standardwerte wieder her.',
+      runtimeNote: 'Wenn der Browserspeicher verfügbar ist, werden Änderungen gespeichert und nach dem Neuladen wiederverwendet. Das Löschen des Browser-Speichers stellt die konfigurierten Standardwerte wieder her.',
       cancel: 'Abbrechen',
       apply: 'Übernehmen',
       weekdays: {
@@ -311,7 +311,7 @@ const THERAPY_PLANNER_TRANSLATIONS = {
         title: 'Informazioni memorizzate sul dispositivo',
         beforeKey: 'L’applicazione memorizza in questo browser soltanto la lingua dell’interfaccia e i giorni della clinica selezionati con la seguente chiave:',
         afterKey: 'Con questa chiave non vengono memorizzati nomi dei pazienti, appuntamenti, stati dei trattamenti o documenti stampati.',
-        unavailable: 'Quando lo spazio di archiviazione del browser non è disponibile, la lingua selezionata rimane attiva soltanto durante la sessione corrente della pagina.',
+        unavailable: 'Se la memoria del browser non è disponibile, la lingua dell’interfaccia e i giorni della clinica selezionati rimangono attivi solo durante la sessione corrente della pagina.',
       },
       network: {
         title: 'Richieste di rete',
@@ -335,7 +335,7 @@ const THERAPY_PLANNER_TRANSLATIONS = {
       title: 'Giorni di trattamento della clinica',
       intro: 'Seleziona i giorni della settimana in cui possono essere pianificati gli appuntamenti.',
       fieldsetLegend: 'Giorni disponibili della clinica',
-      runtimeNote: 'Le modifiche vengono memorizzate in questo browser e riutilizzate dopo il ricaricamento. La cancellazione della memoria del browser ripristina i valori predefiniti configurati.',
+      runtimeNote: 'Quando la memoria del browser è disponibile, le modifiche vengono memorizzate e riutilizzate dopo il ricaricamento. La cancellazione della memoria del browser ripristina i valori predefiniti configurati.',
       cancel: 'Annulla',
       apply: 'Applica',
       weekdays: {

@@ -14,7 +14,7 @@ const DEFAULT_PRIVACY_TRANSLATIONS = {
       title: 'Information stored on this device',
       beforeKey: 'The application stores only your interface language and selected clinic weekdays in this browser under the following key:',
       afterKey: 'No patient name, appointment, treatment status or printed document is stored under this key.',
-      unavailable: 'If browser storage is unavailable, the language selection remains active only for the current page session.',
+    unavailable: 'If browser storage is unavailable, the selected interface language and clinic weekdays remain active only for the current page session.',
     },
     network: {
       title: 'Network requests',

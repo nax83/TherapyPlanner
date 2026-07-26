@@ -793,7 +793,7 @@ test('clinic-weekdays-settings-N: locale changes while open preserve draft value
     i18n.setLocale('de');
     assert.equal(documentObject.getElementById('clinic-weekdays-settings-title').textContent, 'Behandlungstage der Klinik');
     assert.equal(documentObject.getElementById('clinic-weekdays-settings-intro').textContent, 'Wählen Sie die Wochentage aus, an denen Behandlungstermine geplant werden dürfen.');
-    assert.equal(documentObject.getElementById('clinic-weekdays-settings-runtime-note').textContent, 'Änderungen werden in diesem Browser gespeichert und nach dem Neuladen wiederverwendet. Das Löschen des Browser-Speichers stellt die konfigurierten Standardwerte wieder her.');
+    assert.equal(documentObject.getElementById('clinic-weekdays-settings-runtime-note').textContent, 'Wenn der Browserspeicher verfügbar ist, werden Änderungen gespeichert und nach dem Neuladen wiederverwendet. Das Löschen des Browser-Speichers stellt die konfigurierten Standardwerte wieder her.');
     assert.deepEqual(weekdayLabels(documentObject), ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']);
     assert.equal(documentObject.getElementById('clinic-weekdays-settings-cancel-btn').textContent, 'Abbrechen');
     assert.equal(documentObject.getElementById('clinic-weekdays-settings-apply-btn').textContent, 'Übernehmen');
@@ -1073,6 +1073,20 @@ test('clinic-weekdays-settings-R: translations are complete in English, German a
   assert.equal(translations.en.clinicWeekdaysSettings.launch, 'Clinic days');
   assert.equal(translations.de.clinicWeekdaysSettings.launch, 'Behandlungstage');
   assert.equal(translations.it.clinicWeekdaysSettings.launch, 'Giorni della clinica');
+  assert.equal(
+    translations.en.clinicWeekdaysSettings.runtimeNote,
+    'When browser storage is available, changes are stored and reused after reload. Clearing browser storage restores the configured defaults.',
+  );
+  assert.equal(
+    translations.de.clinicWeekdaysSettings.runtimeNote,
+    'Wenn der Browserspeicher verfügbar ist, werden Änderungen gespeichert und nach dem Neuladen wiederverwendet. Das Löschen des Browser-Speichers stellt die konfigurierten Standardwerte wieder her.',
+  );
+  assert.equal(
+    translations.it.clinicWeekdaysSettings.runtimeNote,
+    'Quando la memoria del browser è disponibile, le modifiche vengono memorizzate e riutilizzate dopo il ricaricamento. La cancellazione della memoria del browser ripristina i valori predefiniti configurati.',
+  );
+  assert.ok(!translations.en.clinicWeekdaysSettings.runtimeNote.startsWith('Changes are stored'));
+  assert.ok(translations.en.clinicWeekdaysSettings.runtimeNote.startsWith('When browser storage is available'));
   assert.equal(translations.en.clinicWeekdaysSettings.weekdays[1], 'Monday');
   assert.equal(translations.de.clinicWeekdaysSettings.weekdays[1], 'Montag');
   assert.equal(translations.it.clinicWeekdaysSettings.weekdays[1], 'Lunedì');
