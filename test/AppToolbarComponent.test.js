@@ -34,6 +34,70 @@ test('app-toolbar: renders header shell with default title and labelled actions 
   });
 });
 
+test('app-toolbar integration: clinic weekday settings appears between language and privacy and remains isolated from patient print UI', () => {
+  const createClinicWeekdaysSettingsComponent = require('../ClinicWeekdaysSettingsComponent.js');
+
+  withMockDom((mockDocument, mockWindow) => {
+    Object.assign(global, patientScheduleModule);
+    const createPatientScheduleComponent = loadPatientScheduleComponent();
+    const i18n = createI18n({
+      translations: require('../translations.js'),
+      storage: createMockStorage(JSON.stringify({ locale: 'en' })),
+      navigator: mockWindow.navigator,
+      document: mockDocument,
+    });
+    const planner = new TherapyPlanner(
+      { validAppointmentWeekdays: [2, 3, 4], interEyeGapDays: 14 },
+      { today: new Date(2026, 6, 26) },
+    );
+
+    const patientScheduleElement = createPatientScheduleComponent(planner, { i18n });
+    const languageSelectorElement = createLanguageSelectorComponent(i18n);
+    const clinicWeekdaysSettingsElement = createClinicWeekdaysSettingsComponent({ planner, i18n });
+    const privacyElement = createPrivacyInfoComponent({
+      i18n,
+      storageKey: i18n.getStorageKey(),
+    });
+
+    const toolbar = createAppToolbarComponent({
+      i18n,
+      title: 'TherapyPlanner',
+      actionElements: [
+        patientScheduleElement,
+        languageSelectorElement,
+        clinicWeekdaysSettingsElement,
+        privacyElement,
+      ],
+    });
+
+    mockDocument.body.appendChild(toolbar);
+
+    const actions = toolbar.querySelector('#app-toolbar-actions');
+    assert.equal(actions.children[0], patientScheduleElement);
+    assert.equal(actions.children[1], languageSelectorElement);
+    assert.equal(actions.children[2], clinicWeekdaysSettingsElement);
+    assert.equal(actions.children[3], privacyElement);
+
+    assert.equal(mockDocument.querySelectorAll('#patient-schedule-launch-btn').length, 1);
+    assert.equal(mockDocument.querySelectorAll('#app-language-select').length, 1);
+    assert.equal(mockDocument.querySelectorAll('#clinic-weekdays-settings-launch-btn').length, 1);
+    assert.equal(mockDocument.querySelectorAll('#privacy-info-launch-btn').length, 1);
+
+    i18n.setLocale('de');
+    assert.equal(mockDocument.getElementById('clinic-weekdays-settings-launch-btn').textContent.includes('Behandlungstage'), true);
+
+    mockDocument.getElementById('clinic-weekdays-settings-launch-btn').dispatchEvent(createClickEvent());
+    assert.equal(mockDocument.getElementById('clinic-weekdays-settings-overlay').getAttribute('aria-hidden'), 'false');
+    assert.equal(mockDocument.getElementById('patient-schedule-overlay').classList.contains('hidden'), true);
+    assert.equal(mockDocument.getElementById('privacy-info-overlay').getAttribute('aria-hidden'), 'true');
+
+    const printHost = mockDocument.getElementById('patient-schedule-print-host');
+    assert.equal(printHost.parentNode, mockDocument.body);
+    assert.equal(printHost.querySelector('#clinic-weekdays-settings-overlay'), null);
+    assert.equal(toolbar.classList.contains('no-print'), true);
+  });
+});
+
 test('app-toolbar integration: keeps privacy as the third action and isolates privacy and patient-schedule overlays', () => {
   const createPatientScheduleComponent = loadPatientScheduleComponent();
 
