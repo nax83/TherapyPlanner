@@ -513,6 +513,11 @@ function createClinicWeekdaysSettingsComponent(options) {
     try {
       const nextWeekdays = readPlannerWeekdays();
 
+      if (isApplying) {
+        baselineWeekdays = nextWeekdays;
+        return;
+      }
+
       if (!isOpen) {
         baselineWeekdays = nextWeekdays;
         return;
@@ -589,7 +594,6 @@ function createClinicWeekdaysSettingsComponent(options) {
   cancelButton.addEventListener('click', handleCancel);
   applyButton.addEventListener('click', handleApply);
   dialog.addEventListener('keydown', handleKeydown);
-  overlay.addEventListener('keydown', handleKeydown);
   form.addEventListener('submit', function preventSubmit(event) {
     event.preventDefault();
     handleApply();

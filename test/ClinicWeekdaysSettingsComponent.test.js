@@ -166,6 +166,19 @@ function setCheckboxValue(input, checked) {
   input.dispatchEvent(createChangeEvent(String(input.value)));
 }
 
+function dispatchKeyFromFocusedControl(documentObject, key, options) {
+  const activeElement = documentObject.activeElement;
+  if (!activeElement) {
+    throw new Error(`No focused element available for key ${key}.`);
+  }
+  const event = createKeydownEvent(key);
+  if (options && options.shiftKey) {
+    event.shiftKey = true;
+  }
+  activeElement.dispatchEvent(event);
+  return event;
+}
+
 function checkedWeekdays(documentObject) {
   return DISPLAY_ORDER.filter((weekday) => documentObject.getElementById(`clinic-weekday-${weekday}`).checked);
 }
@@ -310,7 +323,8 @@ test('clinic-weekdays-settings-D: Escape behaves like cancel', () => {
     const launchButton = openDialog(root, documentObject);
     const monday = documentObject.getElementById('clinic-weekday-1');
     setCheckboxValue(monday, true);
-    documentObject.getElementById('clinic-weekdays-settings-dialog').dispatchEvent(createKeydownEvent('Escape'));
+    documentObject.getElementById('clinic-weekday-2').focus();
+    dispatchKeyFromFocusedControl(documentObject, 'Escape');
 
     assert.equal(documentObject.getElementById('clinic-weekdays-settings-overlay').getAttribute('aria-hidden'), 'true');
     assert.equal(documentObject.activeElement, launchButton);
@@ -610,6 +624,159 @@ test('clinic-weekdays-settings-O: focus trap cycles through enabled controls and
     launchButton.focus();
     dialog.dispatchEvent(createKeydownEvent('Tab'));
     assert.equal(documentObject.activeElement, launchButton);
+  });
+});
+
+test('clinic-weekdays-settings-O2: bubbling keydown events visit each control exactly once and skip disabled Apply', () => {
+  withMockEnvironment(({ documentObject, planner, i18n }) => {
+    const root = createClinicWeekdaysSettingsComponent({ planner, i18n });
+    documentObject.body.appendChild(root);
+
+    openDialog(root, documentObject);
+
+    const forwardSequence = [
+      'clinic-weekday-2',
+      'clinic-weekday-3',
+      'clinic-weekday-4',
+      'clinic-weekday-5',
+      'clinic-weekday-6',
+      'clinic-weekday-0',
+      'clinic-weekdays-settings-cancel-btn',
+      'clinic-weekdays-settings-apply-btn',
+      'clinic-weekday-1',
+    ];
+
+    documentObject.getElementById('clinic-weekday-1').focus();
+    forwardSequence.forEach((expectedId) => {
+      const event = dispatchKeyFromFocusedControl(documentObject, 'Tab');
+      assert.equal(event.defaultPrevented, true);
+      assert.equal(documentObject.activeElement.id, expectedId);
+    });
+
+    documentObject.getElementById('clinic-weekday-1').focus();
+    const backwardEvent = dispatchKeyFromFocusedControl(documentObject, 'Tab', { shiftKey: true });
+    assert.equal(backwardEvent.defaultPrevented, true);
+    assert.equal(documentObject.activeElement.id, 'clinic-weekdays-settings-apply-btn');
+
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-1'), true);
+    planner.emitExternalChange([1, 3, 5]);
+
+    documentObject.getElementById('clinic-weekdays-settings-cancel-btn').focus();
+    const disabledApplyForwardEvent = dispatchKeyFromFocusedControl(documentObject, 'Tab');
+    assert.equal(disabledApplyForwardEvent.defaultPrevented, true);
+    assert.equal(documentObject.activeElement.id, 'clinic-weekday-1');
+
+    const disabledApplyBackwardEvent = dispatchKeyFromFocusedControl(documentObject, 'Tab', { shiftKey: true });
+    assert.equal(disabledApplyBackwardEvent.defaultPrevented, true);
+    assert.equal(documentObject.activeElement.id, 'clinic-weekdays-settings-cancel-btn');
+
+    documentObject.getElementById('clinic-weekdays-settings-cancel-btn').dispatchEvent(createClickEvent());
+    const launchButton = documentObject.getElementById('clinic-weekdays-settings-launch-btn');
+    launchButton.focus();
+    const closedEvent = dispatchKeyFromFocusedControl(documentObject, 'Tab');
+    assert.equal(closedEvent.defaultPrevented, false);
+    assert.equal(documentObject.activeElement, launchButton);
+  });
+});
+
+test('clinic-weekdays-settings-O3: one physical Tab event causes one logical focus move', () => {
+  withMockEnvironment(({ documentObject, planner, i18n }) => {
+    const root = createClinicWeekdaysSettingsComponent({ planner, i18n });
+    documentObject.body.appendChild(root);
+
+    openDialog(root, documentObject);
+
+    const focusLog = [];
+    [
+      'clinic-weekday-1',
+      'clinic-weekday-2',
+      'clinic-weekday-3',
+      'clinic-weekday-4',
+      'clinic-weekday-5',
+      'clinic-weekday-6',
+      'clinic-weekday-0',
+      'clinic-weekdays-settings-cancel-btn',
+      'clinic-weekdays-settings-apply-btn',
+    ].forEach((id) => {
+      const element = documentObject.getElementById(id);
+      const originalFocus = element.focus.bind(element);
+      element.focus = function focusWithLog() {
+        focusLog.push(id);
+        return originalFocus();
+      };
+    });
+
+    documentObject.getElementById('clinic-weekday-1').focus();
+    focusLog.length = 0;
+
+    const event = dispatchKeyFromFocusedControl(documentObject, 'Tab');
+
+    assert.equal(event.defaultPrevented, true);
+    assert.equal(documentObject.activeElement.id, 'clinic-weekday-2');
+    assert.deepEqual(focusLog, ['clinic-weekday-2']);
+  });
+});
+
+test('clinic-weekdays-settings-O5: successful effective change does not self-conflict during synchronous planner notification', () => {
+  withMockDom((documentObject) => {
+    const storage = createMockStorage(JSON.stringify({ locale: 'en' }));
+    const i18n = createI18n({
+      translations,
+      storage,
+      navigator: { language: 'en-US' },
+      document: documentObject,
+    });
+    const planner = {
+      weekdays: [2, 3, 4],
+      listeners: [],
+      setterCalls: [],
+      snapshotDuringSet: null,
+      addListener(listener) {
+        this.listeners.push(listener);
+      },
+      getValidAppointmentWeekdays() {
+        return this.weekdays.slice();
+      },
+      setValidAppointmentWeekdays(nextWeekdays) {
+        const normalized = normalizeWeekdays(nextWeekdays);
+        this.setterCalls.push(normalized);
+        this.weekdays = normalized;
+
+        this.listeners.forEach((listener) => listener());
+
+        this.snapshotDuringSet = {
+          errorText: documentObject.getElementById('clinic-weekdays-settings-error').textContent,
+          overlayHidden: documentObject.getElementById('clinic-weekdays-settings-overlay').getAttribute('aria-hidden'),
+        };
+
+        return {
+          success: true,
+          changed: true,
+          previousWeekdays: [2, 3, 4],
+          weekdays: normalized,
+          warnings: [],
+        };
+      },
+    };
+
+    const root = createClinicWeekdaysSettingsComponent({ planner, i18n });
+    documentObject.body.appendChild(root);
+
+    openDialog(root, documentObject);
+
+    DISPLAY_ORDER.forEach((weekday) => setCheckboxValue(documentObject.getElementById(`clinic-weekday-${weekday}`), false));
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-1'), true);
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-3'), true);
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-5'), true);
+
+    documentObject.getElementById('clinic-weekdays-settings-apply-btn').dispatchEvent(createClickEvent());
+
+    assert.deepEqual(planner.setterCalls, [[1, 3, 5]]);
+    assert.equal(planner.snapshotDuringSet.errorText, '');
+    assert.equal(planner.snapshotDuringSet.overlayHidden, 'false');
+    assert.equal(documentObject.getElementById('clinic-weekdays-settings-overlay').getAttribute('aria-hidden'), 'true');
+    assert.equal(documentObject.activeElement, documentObject.getElementById('clinic-weekdays-settings-launch-btn'));
+    assert.equal(documentObject.getElementById('clinic-weekdays-settings-error').textContent, '');
   });
 });
 
