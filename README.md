@@ -88,7 +88,7 @@ Weekday numbers follow JavaScript `Date.getDay()`: `0` = Sunday, `1` = Monday, `
 
 The canonical representation is always a non-empty sorted array of unique integers between `0` and `6`. Inputs such as `[4, 2, 4, 3]` are normalised to `[2, 3, 4]`. Invalid inputs are rejected atomically and do not mutate planner state or schedules.
 
-Changing weekdays is runtime-only in Phase 1.5d. There is no settings UI or persistence yet, so weekday changes do not survive a page reload. Phase 1.5e will add the settings UI.
+Clinic weekday preferences are now configurable from the UI and persisted locally. The planner still treats the active weekday set as the runtime source of truth, but valid selections survive reloads through the shared preference document.
 
 When the weekday set changes successfully:
 
@@ -104,13 +104,14 @@ The toolbar includes a `Clinic days` action between the language selector and th
 - All seven weekdays are available.
 - Weekday values use JavaScript `Date.getDay()` numbering: `0` Sunday, `1` Monday, `2` Tuesday, `3` Wednesday, `4` Thursday, `5` Friday, `6` Saturday.
 - At least one clinic day must remain selected.
-- Applying changes recalculates mutable planned appointments immediately for the current page session.
+- Applying changes recalculates mutable planned appointments immediately.
 - Completed treatments remain historical and are not rewritten.
 - Eligible future confirmed appointments remain fixed when the current engine rules still allow them.
-- The setting is runtime-only for the current page session.
-- Reloading the page restores the configured defaults.
-- No clinic-day preference is persisted locally.
-- Locale preference persistence remains unchanged and still uses `therapyPlanner.preferences.v1`.
+- Clinic weekday and locale preferences are stored together under `therapyPlanner.preferences.v1`.
+- Reloading the page restores the stored clinic weekdays when browser storage is available.
+- Clearing browser storage restores the configured defaults.
+- Invalid stored weekday preferences are ignored safely and fall back to the configured defaults.
+- If browser storage is blocked, runtime weekday changes still work for the current session but may not survive reload.
 
 ## Appointment Model
 
@@ -408,11 +409,12 @@ TherapyPlanner supports runtime localisation for `English`, `Deutsch`, and `Ital
 The initial UI language is selected from the saved preference first, then from the browser language (`navigator.languages`, then `navigator.language`), and finally falls back to English.
 
 Use the toolbar language selector to switch language without reloading the page.
-The selected locale is persisted locally in `therapyPlanner.preferences.v1` as:
+Locale and clinic weekday preferences are persisted locally in `therapyPlanner.preferences.v1` as:
 
 ```json
 {
-  "locale": "de"
+  "locale": "de",
+  "validAppointmentWeekdays": [1, 3, 5]
 }
 ```
 
@@ -425,8 +427,8 @@ Privacy information is available from the toolbar through the `Privacy` / `Daten
 
 - Patient names, appointment data, treatment-status changes, and generated patient schedules are handled only in browser memory for the current page session.
 - TherapyPlanner does not persist patient names, appointments, treatment statuses, printed documents, or generated patient lists.
-- Only the selected locale is stored, under `therapyPlanner.preferences.v1`.
-- If browser storage is blocked or unavailable, locale selection remains active only for the current page session.
+- Only non-patient UI preferences are stored under `therapyPlanner.preferences.v1`: the selected locale and the selected clinic weekdays.
+- If browser storage is blocked or unavailable, locale and clinic-day changes remain active only for the current page session.
 - TherapyPlanner has no user account system and no application backend.
 - The page currently loads interface resources from external CDNs, and the website host plus those CDN providers may receive ordinary technical request metadata.
 - Printing and PDF creation are handled by the browser and operating system; the patient appointment list is not uploaded as part of the print workflow.

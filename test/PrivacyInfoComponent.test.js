@@ -339,3 +339,52 @@ test('privacy info: component still works when window.localStorage getter throws
     assert.equal(overlay.classList.contains('open'), true);
   }, { windowObject });
 });
+
+test('privacy: disclosure text covers persisted language and clinic weekdays in en, de and it', () => {
+  const storage = createMockStorage(JSON.stringify({
+    locale: 'en',
+    validAppointmentWeekdays: [1, 3, 5],
+  }));
+
+  withMockEnvironment((mockDocument, windowObject) => {
+    const i18n = createI18n({
+      translations,
+      storage,
+      document: mockDocument,
+      navigator: { language: 'en-US' },
+    });
+    const root = createPrivacyInfoComponent({
+      i18n,
+      storageKey: I18N_STORAGE_KEY,
+    });
+    const launchButton = root.findById('privacy-info-launch-btn');
+
+    mockDocument.body.appendChild(root);
+    launchButton.dispatchEvent(createClickEvent());
+
+    function dialogText() {
+      return root.findById('privacy-info-dialog').textContent;
+    }
+
+    assert.ok(dialogText().includes('interface language'));
+    assert.ok(dialogText().includes('clinic weekdays'));
+    assert.ok(dialogText().includes('Patient names'));
+    assert.ok(dialogText().includes('appointment dates'));
+    assert.ok(dialogText().includes('treatment status'));
+    assert.ok(!dialogText().includes('Only the selected language is stored'));
+
+    i18n.setLocale('de');
+    assert.ok(dialogText().includes('Sprache der Benutzeroberfläche'));
+    assert.ok(dialogText().includes('Behandlungstage'));
+    assert.ok(dialogText().includes('Patientendaten'));
+    assert.ok(dialogText().includes('Termine'));
+    assert.ok(dialogText().includes('Behandlungsstatus'));
+
+    i18n.setLocale('it');
+    assert.ok(dialogText().includes('lingua dell’interfaccia'));
+    assert.ok(dialogText().includes('giorni della clinica'));
+    assert.ok(dialogText().includes('nomi dei pazienti'));
+    assert.ok(dialogText().includes('date degli appuntamenti'));
+    assert.ok(dialogText().includes('stati dei trattamenti'));
+  }, { windowObject: { localStorage: storage } });
+});

@@ -266,6 +266,222 @@ test('clinic-weekdays-settings-A: structure, IDs and accessibility are correct',
   });
 });
 
+test('clinic-weekdays-settings-T: successful effective change persists canonical engine weekdays', () => {
+  withMockEnvironment(({ documentObject, i18n }) => {
+    const preferenceStore = {
+      writes: [],
+      setValidAppointmentWeekdays(weekdays) {
+        this.writes.push(weekdays.slice());
+        return true;
+      },
+    };
+    const planner = createPlannerStub([2, 3, 4], {
+      buildResult() {
+        return {
+          success: true,
+          changed: true,
+          previousWeekdays: [2, 3, 4],
+          weekdays: [0, 1, 6],
+          warnings: [],
+        };
+      },
+    });
+    const root = createClinicWeekdaysSettingsComponent({ planner, i18n, preferenceStore });
+    documentObject.body.appendChild(root);
+
+    openDialog(root, documentObject);
+    DISPLAY_ORDER.forEach((weekday) => {
+      setCheckboxValue(documentObject.getElementById(`clinic-weekday-${weekday}`), false);
+    });
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-1'), true);
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-6'), true);
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-0'), true);
+
+    documentObject.getElementById('clinic-weekdays-settings-apply-btn').dispatchEvent(createClickEvent());
+
+    assert.deepEqual(preferenceStore.writes, [[0, 1, 6]]);
+  });
+});
+
+test('clinic-weekdays-settings-U: no-op does not require a persistence write', () => {
+  withMockEnvironment({
+    planner: createPlannerStub([2, 3, 4], {
+      buildResult() {
+        return {
+          success: true,
+          changed: false,
+          previousWeekdays: [2, 3, 4],
+          weekdays: [2, 3, 4],
+          warnings: [],
+        };
+      },
+    }),
+    run: ({ documentObject, planner, i18n }) => {
+    const preferenceStore = {
+      writeCount: 0,
+      setValidAppointmentWeekdays() {
+        this.writeCount += 1;
+      },
+    };
+    const root = createClinicWeekdaysSettingsComponent({ planner, i18n, preferenceStore });
+    documentObject.body.appendChild(root);
+
+    openDialog(root, documentObject);
+    documentObject.getElementById('clinic-weekdays-settings-apply-btn').dispatchEvent(createClickEvent());
+
+    assert.equal(preferenceStore.writeCount, 0);
+    },
+  });
+});
+
+test('clinic-weekdays-settings-V: cancel, escape, failures, external change and conflict do not persist draft weekdays', () => {
+  withMockEnvironment(({ documentObject, i18n }) => {
+    const preferenceStore = {
+      writes: [],
+      setValidAppointmentWeekdays(weekdays) {
+        this.writes.push(weekdays.slice());
+      },
+    };
+
+    const planner = createPlannerStub([2, 3, 4]);
+    const root = createClinicWeekdaysSettingsComponent({ planner, i18n, preferenceStore });
+    documentObject.body.appendChild(root);
+
+    openDialog(root, documentObject);
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-1'), true);
+    documentObject.getElementById('clinic-weekdays-settings-cancel-btn').dispatchEvent(createClickEvent());
+
+    openDialog(root, documentObject);
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-1'), true);
+    documentObject.getElementById('clinic-weekday-2').focus();
+    dispatchKeyFromFocusedControl(documentObject, 'Escape');
+
+    openDialog(root, documentObject);
+    DISPLAY_ORDER.forEach((weekday) => {
+      setCheckboxValue(documentObject.getElementById(`clinic-weekday-${weekday}`), false);
+    });
+    documentObject.getElementById('clinic-weekdays-settings-apply-btn').dispatchEvent(createClickEvent());
+    documentObject.getElementById('clinic-weekdays-settings-cancel-btn').dispatchEvent(createClickEvent());
+
+    documentObject.body.removeChild(root);
+    const invalidPlanner = createPlannerStub([2, 3, 4], {
+      buildResult() {
+        return { success: false, reason: 'INVALID_APPOINTMENT_WEEKDAYS' };
+      },
+    });
+    const invalidRoot = createClinicWeekdaysSettingsComponent({ planner: invalidPlanner, i18n, preferenceStore });
+    documentObject.body.appendChild(invalidRoot);
+    openDialog(invalidRoot, documentObject);
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-1'), true);
+    documentObject.getElementById('clinic-weekdays-settings-apply-btn').dispatchEvent(createClickEvent());
+    documentObject.getElementById('clinic-weekdays-settings-cancel-btn').dispatchEvent(createClickEvent());
+
+    documentObject.body.removeChild(invalidRoot);
+    const recalcPlanner = createPlannerStub([2, 3, 4], {
+      buildResult() {
+        return { success: false, reason: 'WEEKDAY_RECALCULATION_FAILED' };
+      },
+    });
+    const recalcRoot = createClinicWeekdaysSettingsComponent({ planner: recalcPlanner, i18n, preferenceStore });
+    documentObject.body.appendChild(recalcRoot);
+    openDialog(recalcRoot, documentObject);
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-1'), true);
+    documentObject.getElementById('clinic-weekdays-settings-apply-btn').dispatchEvent(createClickEvent());
+    documentObject.getElementById('clinic-weekdays-settings-cancel-btn').dispatchEvent(createClickEvent());
+
+    documentObject.body.removeChild(recalcRoot);
+    const unknownPlanner = createPlannerStub([2, 3, 4], {
+      buildResult() {
+        return { success: false, reason: 'SOMETHING_ELSE' };
+      },
+    });
+    const unknownRoot = createClinicWeekdaysSettingsComponent({ planner: unknownPlanner, i18n, preferenceStore });
+    documentObject.body.appendChild(unknownRoot);
+    openDialog(unknownRoot, documentObject);
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-1'), true);
+    documentObject.getElementById('clinic-weekdays-settings-apply-btn').dispatchEvent(createClickEvent());
+    documentObject.getElementById('clinic-weekdays-settings-cancel-btn').dispatchEvent(createClickEvent());
+
+    documentObject.body.removeChild(unknownRoot);
+    const thrownPlanner = createPlannerStub([2, 3, 4], {
+      throwOnSet: true,
+    });
+    const thrownRoot = createClinicWeekdaysSettingsComponent({ planner: thrownPlanner, i18n, preferenceStore });
+    documentObject.body.appendChild(thrownRoot);
+    openDialog(thrownRoot, documentObject);
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-1'), true);
+    documentObject.getElementById('clinic-weekdays-settings-apply-btn').dispatchEvent(createClickEvent());
+    documentObject.getElementById('clinic-weekdays-settings-cancel-btn').dispatchEvent(createClickEvent());
+
+    planner.emitExternalChange([1, 3, 5]);
+
+    openDialog(thrownRoot, documentObject);
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-1'), true);
+    thrownPlanner.emitExternalChange([1, 3, 5]);
+
+    assert.deepEqual(preferenceStore.writes, []);
+  });
+});
+
+test('clinic-weekdays-settings-W: persistence write failure does not undo the planner change or leave the dialog open', () => {
+  withMockEnvironment(({ documentObject, i18n }) => {
+    const preferenceStore = {
+      writeCount: 0,
+      setValidAppointmentWeekdays() {
+        this.writeCount += 1;
+        throw new Error('storage blocked');
+      },
+    };
+    const planner = createPlannerStub([2, 3, 4], {
+      buildResult() {
+        return {
+          success: true,
+          changed: true,
+          previousWeekdays: [2, 3, 4],
+          weekdays: [1, 3, 5],
+          warnings: [],
+        };
+      },
+    });
+    const root = createClinicWeekdaysSettingsComponent({ planner, i18n, preferenceStore });
+    documentObject.body.appendChild(root);
+
+    openDialog(root, documentObject);
+    DISPLAY_ORDER.forEach((weekday) => {
+      setCheckboxValue(documentObject.getElementById(`clinic-weekday-${weekday}`), false);
+    });
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-1'), true);
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-3'), true);
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-5'), true);
+
+    documentObject.getElementById('clinic-weekdays-settings-apply-btn').dispatchEvent(createClickEvent());
+
+    assert.equal(preferenceStore.writeCount, 1);
+    assert.deepEqual(planner.getValidAppointmentWeekdays(), [1, 3, 5]);
+    assert.equal(documentObject.getElementById('clinic-weekdays-settings-overlay').getAttribute('aria-hidden'), 'true');
+  });
+});
+
+test('clinic-weekdays-settings-X: missing optional preferenceStore preserves runtime behaviour', () => {
+  withMockEnvironment(({ documentObject, planner, i18n }) => {
+    const root = createClinicWeekdaysSettingsComponent({ planner, i18n });
+    documentObject.body.appendChild(root);
+
+    openDialog(root, documentObject);
+    DISPLAY_ORDER.forEach((weekday) => {
+      setCheckboxValue(documentObject.getElementById(`clinic-weekday-${weekday}`), false);
+    });
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-1'), true);
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-3'), true);
+    setCheckboxValue(documentObject.getElementById('clinic-weekday-5'), true);
+
+    assert.doesNotThrow(() => {
+      documentObject.getElementById('clinic-weekdays-settings-apply-btn').dispatchEvent(createClickEvent());
+    });
+    assert.deepEqual(planner.getValidAppointmentWeekdays(), [1, 3, 5]);
+  });
+});
+
 test('clinic-weekdays-settings-B: initial state and opening reflect planner weekdays and focus the first selected day', () => {
   withMockEnvironment(({ documentObject, planner, i18n, subscribeCounter }) => {
     const listenerSpy = { count: 0 };
@@ -577,7 +793,7 @@ test('clinic-weekdays-settings-N: locale changes while open preserve draft value
     i18n.setLocale('de');
     assert.equal(documentObject.getElementById('clinic-weekdays-settings-title').textContent, 'Behandlungstage der Klinik');
     assert.equal(documentObject.getElementById('clinic-weekdays-settings-intro').textContent, 'Wählen Sie die Wochentage aus, an denen Behandlungstermine geplant werden dürfen.');
-    assert.equal(documentObject.getElementById('clinic-weekdays-settings-runtime-note').textContent, 'Änderungen gelten nur für die aktuelle Seitensitzung und werden beim Neuladen der Seite zurückgesetzt.');
+    assert.equal(documentObject.getElementById('clinic-weekdays-settings-runtime-note').textContent, 'Änderungen werden in diesem Browser gespeichert und nach dem Neuladen wiederverwendet. Das Löschen des Browser-Speichers stellt die konfigurierten Standardwerte wieder her.');
     assert.deepEqual(weekdayLabels(documentObject), ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']);
     assert.equal(documentObject.getElementById('clinic-weekdays-settings-cancel-btn').textContent, 'Abbrechen');
     assert.equal(documentObject.getElementById('clinic-weekdays-settings-apply-btn').textContent, 'Übernehmen');

@@ -6,14 +6,39 @@ const I18N_LOCALE_FORMATS = {
   it: 'it-IT',
 };
 
+function resolvePreferenceStoreFactory() {
+  if (typeof globalThis !== 'undefined' && typeof globalThis.createPreferenceStore === 'function') {
+    return globalThis.createPreferenceStore;
+  }
+
+  if (typeof require === 'function') {
+    try {
+      return require('./PreferenceStore.js').createPreferenceStore;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  return null;
+}
+
 function createI18n(options) {
   const settings = options && typeof options === 'object' ? options : {};
+  const createPreferenceStoreFactory = resolvePreferenceStoreFactory();
   const translations = settings.translations && typeof settings.translations === 'object'
     ? settings.translations
     : {};
   const storage = settings.storage || null;
   const navigatorObject = settings.navigator || null;
   const documentObject = settings.document || null;
+  const preferenceStore = settings.preferenceStore || (
+    createPreferenceStoreFactory
+      ? createPreferenceStoreFactory({
+          storage,
+          storageKey: I18N_STORAGE_KEY,
+        })
+      : null
+  );
   const listeners = new Set();
 
   function getNestedValue(locale, key) {
@@ -56,29 +81,19 @@ function createI18n(options) {
   }
 
   function readPreferences() {
-    if (!storage || typeof storage.getItem !== 'function') {
-      return {};
+    if (preferenceStore && typeof preferenceStore.read === 'function') {
+      return preferenceStore.read();
     }
 
-    try {
-      return safeParsePreferences(storage.getItem(I18N_STORAGE_KEY));
-    } catch (error) {
-      return {};
-    }
+    return {};
   }
 
   function persistLocale(locale) {
-    if (!storage || typeof storage.getItem !== 'function' || typeof storage.setItem !== 'function') {
+    if (!preferenceStore || typeof preferenceStore.setLocale !== 'function') {
       return;
     }
 
-    try {
-      const preferences = readPreferences();
-      preferences.locale = locale;
-      storage.setItem(I18N_STORAGE_KEY, JSON.stringify(preferences));
-    } catch (error) {
-      // Keep the application functional when storage is unavailable.
-    }
+    preferenceStore.setLocale(locale);
   }
 
   function updateDocumentLanguage(locale) {

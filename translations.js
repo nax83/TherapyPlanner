@@ -23,7 +23,7 @@ const THERAPY_PLANNER_TRANSLATIONS = {
       },
       storedPreference: {
         title: 'Information stored on this device',
-        beforeKey: 'Only the selected language is stored in your browser\'s local storage under the following key:',
+        beforeKey: 'The application stores only your interface language and selected clinic weekdays in this browser under the following key:',
         afterKey: 'No patient name, appointment, treatment status or printed document is stored under this key.',
         unavailable: 'If browser storage is unavailable, the language selection remains active only for the current page session.',
       },
@@ -49,7 +49,7 @@ const THERAPY_PLANNER_TRANSLATIONS = {
       title: 'Clinic treatment days',
       intro: 'Choose the weekdays on which treatment appointments may be scheduled.',
       fieldsetLegend: 'Available clinic days',
-      runtimeNote: 'Changes apply to the current page session only and are reset when the page is reloaded.',
+      runtimeNote: 'Changes are stored in this browser and reused after reload. Clearing browser storage restores the configured defaults.',
       cancel: 'Cancel',
       apply: 'Apply',
       weekdays: {
@@ -166,7 +166,7 @@ const THERAPY_PLANNER_TRANSLATIONS = {
       },
       storedPreference: {
         title: 'Auf diesem Gerät gespeicherte Informationen',
-        beforeKey: 'Nur die ausgewählte Sprache wird im lokalen Speicher Ihres Browsers unter dem folgenden Schlüssel gespeichert:',
+        beforeKey: 'Die Anwendung speichert in diesem Browser nur die ausgewählte Sprache der Benutzeroberfläche und die gewählten Behandlungstage unter dem folgenden Schlüssel:',
         afterKey: 'Unter diesem Schlüssel werden keine Patientennamen, Termine, Behandlungsstatus oder gedruckten Dokumente gespeichert.',
         unavailable: 'Wenn der Browserspeicher nicht verfügbar ist, bleibt die Sprachauswahl nur während der aktuellen Seitensitzung aktiv.',
       },
@@ -192,7 +192,7 @@ const THERAPY_PLANNER_TRANSLATIONS = {
       title: 'Behandlungstage der Klinik',
       intro: 'Wählen Sie die Wochentage aus, an denen Behandlungstermine geplant werden dürfen.',
       fieldsetLegend: 'Verfügbare Behandlungstage',
-      runtimeNote: 'Änderungen gelten nur für die aktuelle Seitensitzung und werden beim Neuladen der Seite zurückgesetzt.',
+      runtimeNote: 'Änderungen werden in diesem Browser gespeichert und nach dem Neuladen wiederverwendet. Das Löschen des Browser-Speichers stellt die konfigurierten Standardwerte wieder her.',
       cancel: 'Abbrechen',
       apply: 'Übernehmen',
       weekdays: {
@@ -309,7 +309,7 @@ const THERAPY_PLANNER_TRANSLATIONS = {
       },
       storedPreference: {
         title: 'Informazioni memorizzate sul dispositivo',
-        beforeKey: 'Nel localStorage del browser viene memorizzata soltanto la lingua selezionata, con la seguente chiave:',
+        beforeKey: 'L’applicazione memorizza in questo browser soltanto la lingua dell’interfaccia e i giorni della clinica selezionati con la seguente chiave:',
         afterKey: 'Con questa chiave non vengono memorizzati nomi dei pazienti, appuntamenti, stati dei trattamenti o documenti stampati.',
         unavailable: 'Quando lo spazio di archiviazione del browser non è disponibile, la lingua selezionata rimane attiva soltanto durante la sessione corrente della pagina.',
       },
@@ -335,7 +335,7 @@ const THERAPY_PLANNER_TRANSLATIONS = {
       title: 'Giorni di trattamento della clinica',
       intro: 'Seleziona i giorni della settimana in cui possono essere pianificati gli appuntamenti.',
       fieldsetLegend: 'Giorni disponibili della clinica',
-      runtimeNote: 'Le modifiche valgono solo per la sessione corrente della pagina e vengono annullate quando la pagina viene ricaricata.',
+      runtimeNote: 'Le modifiche vengono memorizzate in questo browser e riutilizzate dopo il ricaricamento. La cancellazione della memoria del browser ripristina i valori predefiniti configurati.',
       cancel: 'Annulla',
       apply: 'Applica',
       weekdays: {
