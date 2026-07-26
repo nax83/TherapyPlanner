@@ -108,3 +108,29 @@ test('i18n: safe storage acquisition failure falls back to null storage', () => 
   assert.doesNotThrow(() => i18n.setLocale('it'));
   assert.equal(i18n.getLocale(), 'it');
 });
+
+test('i18n: locale updates preserve persisted clinic weekdays in the shared preference document', () => {
+  const storage = createMockStorage(JSON.stringify({
+    locale: 'en',
+    validAppointmentWeekdays: [1, 3, 5],
+  }));
+  const documentObject = new MockDocument();
+  const i18n = createI18n({
+    translations: {
+      en: { toolbar: { language: 'Language' } },
+      de: { toolbar: { language: 'Sprache' } },
+      it: { toolbar: { language: 'Lingua' } },
+    },
+    storage,
+    document: documentObject,
+    navigator: { language: 'en-US' },
+  });
+
+  i18n.setLocale('de');
+  i18n.setLocale('it');
+
+  assert.deepEqual(JSON.parse(storage.getItem(I18N_STORAGE_KEY)), {
+    locale: 'it',
+    validAppointmentWeekdays: [1, 3, 5],
+  });
+});

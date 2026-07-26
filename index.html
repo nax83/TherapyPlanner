@@ -15,6 +15,7 @@
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="translations.js"></script>
+    <script src="PreferenceStore.js"></script>
     <script src="I18n.js"></script>
     <script src="TherapyPlanner.js"></script>
     <script src="PatientSchedule.js"></script>
@@ -47,10 +48,14 @@
       const preferenceStorage = getSafeStorage(function getLocalStorage() {
         return window.localStorage;
       });
+      const preferenceStore = createPreferenceStore({
+        storage: preferenceStorage,
+        storageKey: I18N_STORAGE_KEY,
+      });
 
       const i18n = createI18n({
         translations: THERAPY_PLANNER_TRANSLATIONS,
-        storage: preferenceStorage,
+        preferenceStore,
         navigator: window.navigator,
         document: window.document,
       });
@@ -73,7 +78,17 @@
         console.warn('Fetch API not available; using default schedule configuration.');
       }
 
-      const planner = new TherapyPlanner(config);
+      let plannerConfig = config && typeof config === 'object'
+        ? { ...config }
+        : undefined;
+      const storedWeekdays = preferenceStore.getValidAppointmentWeekdays();
+
+      if (storedWeekdays) {
+        plannerConfig = plannerConfig || {};
+        plannerConfig.validAppointmentWeekdays = storedWeekdays.slice();
+      }
+
+      const planner = new TherapyPlanner(plannerConfig);
 
       // Patient appointment list component (placed in the application toolbar)
       const patientScheduleEl = createPatientScheduleComponent(planner, { i18n });
@@ -81,6 +96,7 @@
       const clinicWeekdaysSettingsEl = createClinicWeekdaysSettingsComponent({
         planner,
         i18n,
+        preferenceStore,
       });
       const privacyInfoEl = createPrivacyInfoComponent({
         i18n,

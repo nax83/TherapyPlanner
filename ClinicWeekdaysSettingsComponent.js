@@ -4,7 +4,7 @@ const DEFAULT_CLINIC_WEEKDAY_TRANSLATIONS = {
     title: 'Clinic treatment days',
     intro: 'Choose the weekdays on which treatment appointments may be scheduled.',
     fieldsetLegend: 'Available clinic days',
-    runtimeNote: 'Changes apply to the current page session only and are reset when the page is reloaded.',
+    runtimeNote: 'When browser storage is available, changes are stored and reused after reload. Clearing browser storage restores the configured defaults.',
     cancel: 'Cancel',
     apply: 'Apply',
     weekdays: {
@@ -70,6 +70,7 @@ function createClinicWeekdaysSettingsComponent(options) {
   const settings = options || {};
   const planner = settings.planner || null;
   const i18n = settings.i18n || null;
+  const preferenceStore = settings.preferenceStore || null;
   const documentObject = typeof document !== 'undefined' ? document : null;
 
   if (!documentObject || typeof documentObject.createElement !== 'function') {
@@ -486,6 +487,17 @@ function createClinicWeekdaysSettingsComponent(options) {
       isApplying = false;
 
       if (result && result.success === true) {
+        if (
+          result.changed === true &&
+          preferenceStore &&
+          typeof preferenceStore.setValidAppointmentWeekdays === 'function'
+        ) {
+          try {
+            preferenceStore.setValidAppointmentWeekdays(result.weekdays);
+          } catch (error) {
+            // Keep the runtime planner change even when persistence is unavailable.
+          }
+        }
         closeDialog();
         return;
       }
